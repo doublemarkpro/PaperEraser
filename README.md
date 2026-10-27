@@ -8,7 +8,7 @@ Windows 试卷去手写和错题整理工具。开发可用 Visual Studio 打开
 
 ## 自动构建与发布
 
-推送到 `main` 时，GitHub Actions 会在 Windows 上构建独立的 x64 可执行文件，并以 `v0.1.<运行编号>` 创建 Release、附上 `PaperEraser.exe`。也可以在 GitHub 的 Actions 页面手动运行构建。构建文件同时保存在对应运行记录的 Artifacts 中。
+推送到 `main` 时，GitHub Actions 会在 Windows 上构建独立的 x64 可执行文件，并以 `v0.1.<运行编号>` 创建 Release、附上 `PaperEraser.exe`。也可以在 GitHub 的 Actions 页面手动运行构建。构建文件同时保存在对应运行记录的 Artifacts 中；构建期间若有更新的提交，旧版本不会创建 Release。
 
 ## 我的错题集
 

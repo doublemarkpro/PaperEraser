@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
@@ -27,7 +31,22 @@ jobs:
           name: PaperEraser-win-x64
           path: publish/PaperEraser.exe
           if-no-files-found: error
+      - name: Check whether this commit is still current
+        id: current
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $head = gh api "repos/$env:GITHUB_REPOSITORY/commits/main" --jq .sha
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check the current main branch.' }
+          if ($head -eq $env:GITHUB_SHA) {
+            'publish=true' >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Skipping release for an older commit; main is now $head."
+            'publish=false' >> $env:GITHUB_OUTPUT
+          }
       - name: Create release
+        if: steps.current.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.1.${{ github.run_number }}
