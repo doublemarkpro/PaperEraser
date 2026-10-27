@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">PaperEraser 使用流程示意图</title>
+  <desc id="desc">设置 API 凭据，导入试卷并调整方向，去除手写并框选题目，最后在错题集组卷导出。</desc>
+  <rect width="1200" height="360" rx="18" fill="#f4f7fc"/>
+  <g font-family="Microsoft YaHei, Arial, sans-serif">
+    <text x="40" y="55" font-size="24" font-weight="bold" fill="#172746">四步开始使用</text>
+    <text x="40" y="80" font-size="14" fill="#7589a4">首次使用前在夸克扫描王开放平台获取 API 凭据</text>
+    <g fill="#fff" stroke="#d7e3f2"><rect x="40" y="110" width="254" height="190" rx="12"/><rect x="328" y="110" width="254" height="190" rx="12"/><rect x="616" y="110" width="254" height="190" rx="12"/><rect x="904" y="110" width="254" height="190" rx="12"/></g>
+    <g fill="#276bea"><circle cx="75" cy="146" r="18"/><circle cx="363" cy="146" r="18"/><circle cx="651" cy="146" r="18"/><circle cx="939" cy="146" r="18"/></g>
+    <g fill="#fff" font-size="15" font-weight="bold" text-anchor="middle"><text x="75" y="152">1</text><text x="363" y="152">2</text><text x="651" y="152">3</text><text x="939" y="152">4</text></g>
+    <g fill="#172746" font-size="18" font-weight="bold"><text x="104" y="152">配置接口</text><text x="392" y="152">导入试卷</text><text x="680" y="152">去除手写</text><text x="968" y="152">整理与导出</text></g>
+    <g fill="#617692" font-size="15"><text x="62" y="193">在「设置」中填写</text><text x="62" y="219">Client ID 和 Secret，</text><text x="62" y="245">点击「保存设置」。</text><text x="350" y="193">打开「试卷处理」，</text><text x="350" y="219">导入或粘贴图片；</text><text x="350" y="245">有需要时左右旋转。</text><text x="638" y="193">点击「去除手写」，</text><text x="638" y="219">在结果上拖动框选，</text><text x="638" y="245">加入指定错题集。</text><text x="926" y="193">在「我的错题集」筛选</text><text x="926" y="219">和整理题目；预览组卷，</text><text x="926" y="245">并导出 PDF。</text></g>
+    <g fill="#7a94b7" font-size="25" text-anchor="middle"><text x="311" y="212">›</text><text x="599" y="212">›</text><text x="887" y="212">›</text></g>
+    <text x="40" y="335" fill="#8293aa" font-size="13">流程示意图；去除手写会调用夸克 API，可能消耗额度。</text>
+  </g>
+</svg>

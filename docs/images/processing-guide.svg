@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="690" viewBox="0 0 1200 690" role="img" aria-labelledby="title desc">
+  <title id="title">试卷处理操作示意图</title>
+  <desc id="desc">依次导入试卷、调整方向、去除手写、在结果上框选、加入错题集或导出。</desc>
+  <rect width="1200" height="690" rx="18" fill="#f4f7fc"/>
+  <rect x="20" y="20" width="1160" height="650" rx="14" fill="#fff" stroke="#d8e3f1"/>
+  <rect x="20" y="20" width="170" height="650" rx="14" fill="#eef5ff"/>
+  <g font-family="Microsoft YaHei, Arial, sans-serif">
+    <text x="44" y="65" fill="#175bc7" font-size="22" font-weight="bold">PaperEraser</text>
+    <text x="44" y="118" fill="#617a9c" font-size="16">我的错题集</text>
+    <rect x="34" y="138" width="142" height="44" rx="8" fill="#dceaff"/>
+    <text x="48" y="166" fill="#175bc7" font-size="16" font-weight="bold">试卷处理</text>
+    <text x="225" y="65" fill="#172746" font-size="26" font-weight="bold">试卷处理</text>
+    <text x="225" y="90" fill="#6c809c" font-size="14">去除手写，整理题目，重新练习</text>
+    <g font-size="15" font-weight="bold">
+      <rect x="225" y="113" width="115" height="42" rx="7" fill="#edf4ff" stroke="#c9d9ef"/><text x="245" y="140" fill="#275baa">① 导入多张</text>
+      <rect x="351" y="113" width="112" height="42" rx="7" fill="#fff" stroke="#c9d9ef"/><text x="371" y="140" fill="#536b8a">粘贴图片</text>
+      <rect x="474" y="113" width="112" height="42" rx="7" fill="#fff" stroke="#c9d9ef"/><text x="494" y="140" fill="#536b8a">手机传图</text>
+      <rect x="597" y="113" width="140" height="42" rx="7" fill="#fff" stroke="#c9d9ef"/><text x="616" y="140" fill="#536b8a">批量导入并处理</text>
+      <rect x="749" y="113" width="142" height="42" rx="7" fill="#276bea"/><text x="769" y="140" fill="#fff">③ 去除手写</text>
+    </g>
+    <rect x="225" y="179" width="135" height="362" rx="10" fill="#fff" stroke="#dce5f1"/>
+    <text x="241" y="209" fill="#172746" font-size="16" font-weight="bold">试卷列表</text>
+    <rect x="239" y="228" width="105" height="60" rx="6" fill="#eaf2ff"/>
+    <rect x="249" y="236" width="29" height="43" rx="2" fill="#fff" stroke="#cbd9ea"/>
+    <text x="287" y="251" fill="#3e587a" font-size="12">示例试卷</text><text x="287" y="270" fill="#8a9cb3" font-size="11">已处理</text>
+    <rect x="377" y="179" width="347" height="362" rx="10" fill="#fff" stroke="#dce5f1"/>
+    <text x="395" y="209" fill="#172746" font-size="16" font-weight="bold">原始试卷</text>
+    <rect x="551" y="187" width="151" height="31" rx="6" fill="#edf4ff"/><text x="564" y="208" fill="#275baa" font-size="13">② ↶ 左转　↷ 右转</text>
+    <rect x="469" y="234" width="165" height="280" rx="2" fill="#fff" stroke="#c6d2e0"/>
+    <text x="500" y="261" font-size="14" font-weight="bold" fill="#44566d">练习试卷</text>
+    <g stroke="#9eabb9" stroke-width="3"><path d="M486 280h130 M486 297h104 M486 330h130 M486 347h91 M486 380h130 M486 397h110 M486 430h130 M486 447h90"/></g>
+    <g stroke="#4881cc" stroke-width="3" fill="none"><path d="M517 307q15 -16 24 1t25 -2 M525 409q16 -18 28 -1"/></g>
+    <rect x="741" y="179" width="397" height="362" rx="10" fill="#fff" stroke="#dce5f1"/>
+    <text x="759" y="209" fill="#172746" font-size="16" font-weight="bold">处理结果 · 拖动框选</text>
+    <rect x="858" y="234" width="165" height="280" rx="2" fill="#fff" stroke="#c6d2e0"/>
+    <text x="889" y="261" font-size="14" font-weight="bold" fill="#44566d">练习试卷</text>
+    <g stroke="#9eabb9" stroke-width="3"><path d="M875 280h130 M875 297h104 M875 330h130 M875 347h91 M875 380h130 M875 397h110 M875 430h130 M875 447h90"/></g>
+    <rect x="870" y="316" width="142" height="48" fill="#2874ef" fill-opacity=".12" stroke="#2874ef" stroke-width="3"/>
+    <text x="766" y="503" fill="#275baa" font-size="14" font-weight="bold">④ 拖动鼠标框选题目</text>
+    <rect x="225" y="563" width="915" height="51" rx="8" fill="#f6f9fe"/>
+    <text x="243" y="595" fill="#6a7e98" font-size="14">学科：数学　　错题集：默认错题集</text>
+    <rect x="510" y="571" width="170" height="35" rx="6" fill="#276bea"/><text x="531" y="594" fill="#fff" font-size="14" font-weight="bold">⑤ 加入选中题目</text>
+    <rect x="700" y="571" width="130" height="35" rx="6" fill="#fff" stroke="#cad9eb"/><text x="720" y="594" fill="#3c587d" font-size="14">保存整页</text>
+    <rect x="846" y="571" width="160" height="35" rx="6" fill="#fff" stroke="#cad9eb"/><text x="866" y="594" fill="#3c587d" font-size="14">导出整页 PDF</text>
+    <text x="225" y="645" fill="#8293aa" font-size="13">界面操作示意图：布局经过简化，按钮位置可能随窗口尺寸变化。</text>
+  </g>
+</svg>

@@ -6,6 +6,16 @@ Windows 试卷去手写和错题整理工具。开发可用 Visual Studio 打开
 
 从 [GitHub Releases](https://github.com/doublemarkpro/PaperEraser/releases/latest) 下载 `PaperEraser.exe`，在 64 位 Windows 上运行。发布版本包含运行所需的 .NET 运行时，无需另外安装；首次启动可能需要一些时间。打开设置填写夸克扫描王开放平台的 Client ID 和 Client Secret 后，即可导入试卷并去除手写。
 
+## 图解使用
+
+下图是依据软件界面整理的操作示意图，并非实际截图；具体布局会随窗口尺寸变化。
+
+![从配置接口到错题组卷的四步流程示意图](docs/images/usage-guide.svg)
+
+在「试卷处理」页面，先导入图片，必要时调整方向，再点击「去除手写」。处理完成后，在右侧结果中拖动框选题目，选择学科和错题集并加入；也可以直接保存整页或导出 PDF。
+
+![试卷导入、旋转、去除手写及框选操作示意图](docs/images/processing-guide.svg)
+
 ## 自动构建与发布
 
 推送到 `main` 时，GitHub Actions 会在 Windows 上构建独立的 x64 可执行文件，并以 `v0.1.<运行编号>` 创建 Release、附上 `PaperEraser.exe`。也可以在 GitHub 的 Actions 页面手动运行构建。构建文件同时保存在对应运行记录的 Artifacts 中；构建期间若有更新的提交，旧版本不会创建 Release。
