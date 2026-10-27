@@ -1,6 +1,14 @@
 # PaperEraser
 
-Windows 试卷去手写和错题整理工具，使用 .NET 10 Windows Desktop Runtime 和 ASP.NET Core Runtime。开发可用 Visual Studio 打开项目，或在项目目录运行 `dotnet run`。
+Windows 试卷去手写和错题整理工具。开发可用 Visual Studio 打开项目，或安装 .NET 10 SDK 后在项目目录运行 `dotnet run`。
+
+## 下载和使用
+
+从 [GitHub Releases](https://github.com/doublemarkpro/PaperEraser/releases/latest) 下载 `PaperEraser.exe`，在 64 位 Windows 上运行。发布版本包含运行所需的 .NET 运行时，无需另外安装；首次启动可能需要一些时间。打开设置填写夸克扫描王开放平台的 Client ID 和 Client Secret 后，即可导入试卷并去除手写。
+
+## 自动构建与发布
+
+推送到 `main` 时，GitHub Actions 会在 Windows 上构建独立的 x64 可执行文件，并以 `v0.1.<运行编号>` 创建 Release、附上 `PaperEraser.exe`。也可以在 GitHub 的 Actions 页面手动运行构建。构建文件同时保存在对应运行记录的 Artifacts 中。
 
 ## 我的错题集
 

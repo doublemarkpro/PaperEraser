@@ -1,0 +1,37 @@
+name: Build and release Windows app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish standalone executable
+        run: dotnet publish PaperEraser.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaperEraser-win-x64
+          path: publish/PaperEraser.exe
+          if-no-files-found: error
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: PaperEraser v0.1.${{ github.run_number }}
+          generate_release_notes: true
+          files: publish/PaperEraser.exe
+          fail_on_unmatched_files: true
