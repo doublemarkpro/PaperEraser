@@ -399,9 +399,11 @@ public partial class MainWindow : Window
     private void ImportFile(string path) => ImportFiles(new[] { path });
     private Worksheet ImportBytes(byte[] bytes, string name)
     {
-        var bitmap = ValidateImage(bytes);
-        var page = new Worksheet(name, bytes, bitmap); pages.Add(page); PageList.SelectedItem = page; SetPage("process");
-        Status.Text = $"已导入 {name}；当前共有 {pages.Count} 页。导入不会消耗 API 额度。";
+        var normalized = ValidateImage(bytes);
+        var page = new Worksheet(name, normalized.Bytes, normalized.Image); pages.Add(page); PageList.SelectedItem = page; SetPage("process");
+        Status.Text = normalized.Corrected
+            ? $"已导入 {name} 并按照片方向自动转正；当前共有 {pages.Count} 页。"
+            : $"已导入 {name}；当前共有 {pages.Count} 页。导入不会消耗 API 额度。";
         return page;
     }
     private void PageList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -415,7 +417,8 @@ public partial class MainWindow : Window
         OriginalImage.Source = currentPage?.Original; result = currentPage?.Processed; ResultImage.Source = result;
         ResultSurface.Width = result?.PixelWidth ?? 1; ResultSurface.Height = result?.PixelHeight ?? 1;
         EraseButton.IsEnabled = !isBusy && original is not null; SaveButton.IsEnabled = result is not null; ExportPageButton.IsEnabled = result is not null;
-        RemovePageButton.IsEnabled = !isBusy && currentPage is not null; RefreshRegions();
+        RemovePageButton.IsEnabled = !isBusy && currentPage is not null;
+        RotateLeftButton.IsEnabled = RotateRightButton.IsEnabled = !isBusy && currentPage is not null; RefreshRegions();
     }
     private void RemovePage_Click(object sender, RoutedEventArgs e)
     {
@@ -424,13 +427,22 @@ public partial class MainWindow : Window
         var index = PageList.SelectedIndex; pages.Remove(currentPage);
         if (pages.Count > 0) PageList.SelectedIndex = Math.Min(index, pages.Count - 1); else { currentPage = null; ShowCurrentPage(); }
     }
-    private static BitmapImage ValidateImage(byte[] bytes)
+    private static (BitmapSource Image, byte[] Bytes, bool Corrected) ValidateImage(byte[] bytes)
     {
         if (bytes.Length > 10 * 1024 * 1024) throw new Exception("图片超过 10 MB，请先压缩后再导入。");
-        var bitmap = LoadImage(bytes);
-        if (bitmap.PixelWidth <= 15 || bitmap.PixelHeight <= 15 || bitmap.PixelWidth >= 8192 || bitmap.PixelHeight >= 8192 || Math.Max(bitmap.PixelWidth, bitmap.PixelHeight) / (double)Math.Min(bitmap.PixelWidth, bitmap.PixelHeight) >= 50)
+        var normalized = ImageOrientation.DecodeAndNormalize(bytes);
+        if (normalized.Image.PixelWidth <= 15 || normalized.Image.PixelHeight <= 15 || normalized.Image.PixelWidth >= 8192 || normalized.Image.PixelHeight >= 8192 || Math.Max(normalized.Image.PixelWidth, normalized.Image.PixelHeight) / (double)Math.Min(normalized.Image.PixelWidth, normalized.Image.PixelHeight) >= 50)
             throw new Exception("图片尺寸不符合要求：宽高均需大于 15、小于 8192 像素，长宽比小于 50。");
-        return bitmap;
+        if (normalized.Bytes.Length > 10 * 1024 * 1024) throw new Exception("图片转正后超过 10 MB，请先压缩后再导入。");
+        return normalized;
+    }
+    private void RotateLeft_Click(object sender, RoutedEventArgs e) => RotateCurrentPage(false);
+    private void RotateRight_Click(object sender, RoutedEventArgs e) => RotateCurrentPage(true);
+    private void RotateCurrentPage(bool clockwise)
+    {
+        if (currentPage is null || isBusy) return;
+        ResetSelection(); currentPage.Rotate(clockwise); ShowCurrentPage(); SaveSession();
+        Status.Text = clockwise ? "当前页已向右旋转 90°。" : "当前页已向左旋转 90°。";
     }
     private void Window_DragOver(object sender, DragEventArgs e)
     {
@@ -493,6 +505,7 @@ public partial class MainWindow : Window
         isBusy = busy;
         OpenButton.IsEnabled = !busy; PasteButton.IsEnabled = !busy; LoadResultButton.IsEnabled = !busy;
         BatchButton.IsEnabled = !busy; BatchQueuedButton.IsEnabled = !busy; PhoneButton.IsEnabled = !busy; PageList.IsEnabled = !busy; SelectionCanvas.IsEnabled = !busy; RemovePageButton.IsEnabled = !busy && currentPage is not null; EraseButton.IsEnabled = !busy && original is not null; RefreshRegions();
+        RotateLeftButton.IsEnabled = RotateRightButton.IsEnabled = !busy && currentPage is not null;
     }
     private static async Task<BitmapImage> RequestEraseCore(byte[] bytes, string id, string secret, string requestId)
     {
@@ -606,7 +619,7 @@ public partial class MainWindow : Window
         int added = 0; var errors = new List<string>();
         foreach (var path in dialog.FileNames)
         {
-            try { var image = LoadImage(File.ReadAllBytes(path)); var page = new Worksheet(Path.GetFileNameWithoutExtension(path), null, null, image); pages.Add(page); PageList.SelectedItem = page; added++; }
+            try { var image = ImageOrientation.DecodeAndNormalize(File.ReadAllBytes(path)).Image; var page = new Worksheet(Path.GetFileNameWithoutExtension(path), null, null, image); pages.Add(page); PageList.SelectedItem = page; added++; }
             catch (Exception ex) { errors.Add($"{Path.GetFileName(path)}：{ex.Message}"); }
         }
         SetPage("process"); Status.Text = $"已导入 {added} 张处理结果，可以切换页面并连续框选题目。";

@@ -55,9 +55,9 @@ internal static class WorksheetStore
         if (!Convert.ToHexStringLower(SHA256.HashData(bytes)).Equals(name[..64], StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("试卷缓存文件校验失败。");
         return bytes;
     }
-    private static BitmapImage Decode(byte[] bytes)
+    private static BitmapSource Decode(byte[] bytes)
     {
-        using var stream = new MemoryStream(bytes); var image = new BitmapImage(); image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.StreamSource = stream; image.EndInit(); image.Freeze(); return image;
+        return ImageOrientation.DecodeAndNormalize(bytes).Image;
     }
     internal static (List<Worksheet> Pages, Guid? Selected) Load()
     {
