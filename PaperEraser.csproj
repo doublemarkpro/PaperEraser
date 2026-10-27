@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>Assets\brand-v2.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="QRCoder" Version="1.8.1" />
+  </ItemGroup>
+  <ItemGroup><Resource Include="Assets\app.png"/><Resource Include="Assets\brand-v2.png"/><Resource Include="Assets\settings-v2.png"/><Resource Include="Assets\collection.png"/><Resource Include="Assets\paper.png"/></ItemGroup>
+  <ItemGroup><Resource Include="Assets\generated-*.png" /></ItemGroup>
+</Project>

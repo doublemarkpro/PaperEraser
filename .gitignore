@@ -1,0 +1,21 @@
+# .NET build output and IDE state
+bin/
+obj/
+build-*/
+.vs/
+*.user
+*.suo
+
+# Local credentials, application data, backups and environment secrets
+.env
+.env.*
+*.pfx
+*.p12
+*.key
+credentials.json
+basket.json
+library.json
+usage.jsonl
+session/
+restore-backup-*/
+*.zip
