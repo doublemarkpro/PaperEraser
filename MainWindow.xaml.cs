@@ -419,6 +419,7 @@ public partial class MainWindow : Window
         EraseButton.IsEnabled = !isBusy && original is not null; SaveButton.IsEnabled = result is not null; ExportPageButton.IsEnabled = result is not null;
         RemovePageButton.IsEnabled = !isBusy && currentPage is not null;
         RotateLeftButton.IsEnabled = RotateRightButton.IsEnabled = !isBusy && currentPage is not null; RefreshRegions();
+        ExportPagesButton.IsEnabled = !isBusy;
     }
     private void RemovePage_Click(object sender, RoutedEventArgs e)
     {
@@ -506,6 +507,7 @@ public partial class MainWindow : Window
         OpenButton.IsEnabled = !busy; PasteButton.IsEnabled = !busy; LoadResultButton.IsEnabled = !busy;
         BatchButton.IsEnabled = !busy; BatchQueuedButton.IsEnabled = !busy; PhoneButton.IsEnabled = !busy; PageList.IsEnabled = !busy; SelectionCanvas.IsEnabled = !busy; RemovePageButton.IsEnabled = !busy && currentPage is not null; EraseButton.IsEnabled = !busy && original is not null; RefreshRegions();
         RotateLeftButton.IsEnabled = RotateRightButton.IsEnabled = !busy && currentPage is not null;
+        ExportPagesButton.IsEnabled = !busy;
     }
     private static async Task<BitmapImage> RequestEraseCore(byte[] bytes, string id, string secret, string requestId)
     {
@@ -861,6 +863,18 @@ public partial class MainWindow : Window
     private void ExportPage_Click(object sender, RoutedEventArgs e)
     {
         if (result is not null) ExportPdf(new[] { result }, originalName + "_去手写.pdf");
+    }
+    private void ExportPages_Click(object sender, RoutedEventArgs e)
+    {
+        if (isBusy) return;
+        var processed = pages.Where(p => p.Processed is not null).ToArray();
+        if (processed.Length == 0)
+        {
+            MessageBox.Show(this, "请先去除手写，或使用“导入已处理图片”添加图片，再导出多页 PDF。", "暂无已处理页面", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var dialog = new PageExportWindow(processed) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.ExportedPath is not null) Status.Text = "多页 PDF 已保存：" + dialog.ExportedPath;
     }
     private void PreviewQuestions_Click(object sender, RoutedEventArgs e)
     {

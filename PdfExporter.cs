@@ -57,7 +57,22 @@ internal static class PdfExporter
     }
     internal static void Save(string path, IReadOnlyList<BitmapSource> images, LayoutOptions? options = null)
     {
-        var pages = Layout(images, options);
+        SaveLayout(path, Layout(images, options));
+    }
+    internal static void SavePages(string path, IReadOnlyList<BitmapSource> images)
+    {
+        if (images.Count == 0) throw new ArgumentException("没有可导出的已处理页面。");
+        const double margin = 18;
+        var pages = images.Select(image =>
+        {
+            var scale = Math.Min((PageWidth - 2 * margin) / image.PixelWidth, (PageHeight - 2 * margin) / image.PixelHeight);
+            var width = image.PixelWidth * scale; var height = image.PixelHeight * scale;
+            return new List<Placement> { new(image, (PageWidth - width) / 2, (PageHeight - height) / 2, width, height) };
+        }).ToList();
+        SaveLayout(path, pages);
+    }
+    private static void SaveLayout(string path, List<List<Placement>> pages)
+    {
         var objects = new List<byte[]>();
         int Add(byte[] bytes) { objects.Add(bytes); return objects.Count; }
         byte[] Ascii(string value) => Encoding.ASCII.GetBytes(value);
