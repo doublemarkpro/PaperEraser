@@ -4,7 +4,10 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace PaperEraser;
 
@@ -27,6 +30,14 @@ internal sealed class PageExportWindow : Window
     private readonly Button up = new() { Content = "上移", Padding = new Thickness(12, 6, 12, 6) };
     private readonly Button down = new() { Content = "下移", Padding = new Thickness(12, 6, 12, 6) };
     private readonly Button export = new() { Content = "导出 PDF", Padding = new Thickness(18, 8, 18, 8) };
+    private const string DragFormat = "PaperEraser.ExportPageOrder";
+    private Point dragStart;
+    private ExportPage? dragCandidate;
+    private ExportPage[]? draggingPages;
+    private bool collapseSelectionOnClick;
+    private PageDropAdorner? dropMarker;
+    private AdornerLayer? dropLayer;
+    private readonly DispatcherTimer scrollTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     internal string? ExportedPath { get; private set; }
 
     internal PageExportWindow(IEnumerable<Worksheet> pages)
@@ -37,7 +48,7 @@ internal sealed class PageExportWindow : Window
         var root = new DockPanel { Margin = new Thickness(20) };
         var header = new StackPanel();
         header.Children.Add(new TextBlock { Text = "选择页面并调整顺序", FontSize = 24, FontWeight = FontWeights.SemiBold });
-        var hint = UiFactory.Hint("勾选需要导出的页面。点击行后用上移 / 下移排序，按住 Ctrl 或 Shift 可同时移动多行。PDF 按列表从上到下导出，每张图片独占一页 A4，完整保留画面。");
+        var hint = UiFactory.Hint("勾选需要导出的页面，拖动缩略图或名称排序；蓝色插入线表示放置位置。按住 Ctrl / Shift 可多选后一起拖动，也可使用上移 / 下移。每张图片独占一页 A4，完整保留画面。");
         hint.Margin = new Thickness(0, 8, 0, 16); header.Children.Add(hint);
         DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         var footer = new DockPanel { Margin = new Thickness(0, 14, 0, 0) };
@@ -56,7 +67,7 @@ internal sealed class PageExportWindow : Window
         list.ItemContainerStyle = new Style(typeof(ListBoxItem));
         list.ItemContainerStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
         list.ItemTemplate = CreateTemplate();
-        left.Children.Add(new Border { Child = list, BorderBrush = UiFactory.Brush("#DAE3EF"), BorderThickness = new Thickness(1), Background = Brushes.White, Padding = new Thickness(6) });
+        left.Children.Add(new Border { Child = new AdornerDecorator { Child = list }, BorderBrush = UiFactory.Brush("#DAE3EF"), BorderThickness = new Thickness(1), Background = Brushes.White, Padding = new Thickness(6) });
         body.Children.Add(left);
         var previewCard = new Border { Background = UiFactory.Brush("#ECF1F7"), CornerRadius = new CornerRadius(8), Child = preview };
         Grid.SetColumn(previewCard, 1); body.Children.Add(previewCard); root.Children.Add(body);
@@ -65,6 +76,15 @@ internal sealed class PageExportWindow : Window
         none.Click += (_, _) => { foreach (var page in orderedPages) page.Included = false; };
         up.Click += (_, _) => MoveSelection(-1); down.Click += (_, _) => MoveSelection(1);
         list.SelectionChanged += (_, _) => Refresh(); export.Click += Export_Click;
+        list.AllowDrop = true;
+        list.PreviewMouseLeftButtonDown += List_MouseDown;
+        list.PreviewMouseLeftButtonUp += List_MouseUp;
+        list.PreviewMouseMove += List_MouseMove;
+        list.DragOver += List_DragOver;
+        list.DragLeave += (_, e) => { if (!InsideList(e.GetPosition(list))) ClearDropMarker(); };
+        list.Drop += List_Drop;
+        scrollTimer.Tick += (_, _) => AutoScroll();
+        Closed += (_, _) => { scrollTimer.Stop(); ClearDropMarker(); };
         foreach (var page in orderedPages) page.PropertyChanged += (_, _) => Refresh();
         if (orderedPages.Count > 0) list.SelectedIndex = 0;
         Refresh();
@@ -115,6 +135,161 @@ internal sealed class PageExportWindow : Window
         list.SelectedItems.Clear(); foreach (var page in orderedPages.Where(selected.Contains)) list.SelectedItems.Add(page);
         if (list.SelectedItem is not null) list.ScrollIntoView(list.SelectedItem);
         Refresh();
+    }
+
+    private void List_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        dragCandidate = null; collapseSelectionOnClick = false;
+        var source = e.OriginalSource as DependencyObject;
+        if (source is null || IsCheckBox(source)) return;
+        var row = ItemsControl.ContainerFromElement(list, source) as ListBoxItem;
+        if (row?.DataContext is not ExportPage page) return;
+        dragStart = e.GetPosition(list); dragCandidate = page;
+        // Keep an existing multi-selection intact until a click (rather than a drag) completes.
+        if (row.IsSelected && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            collapseSelectionOnClick = true; list.Focus(); e.Handled = true;
+        }
+    }
+
+    private bool IsCheckBox(DependencyObject source)
+    {
+        for (DependencyObject? element = source; element is not null && element != list;)
+        {
+            if (element is CheckBox) return true;
+            element = element is Visual ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element);
+        }
+        return false;
+    }
+
+    private void List_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (collapseSelectionOnClick && dragCandidate is not null) list.SelectedItem = dragCandidate;
+        dragCandidate = null; collapseSelectionOnClick = false;
+    }
+
+    private void List_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed) { dragCandidate = null; collapseSelectionOnClick = false; return; }
+        if (dragCandidate is null || draggingPages is not null) return;
+        var point = e.GetPosition(list);
+        if (Math.Abs(point.X - dragStart.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(point.Y - dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+        if (!list.SelectedItems.Contains(dragCandidate)) list.SelectedItem = dragCandidate;
+        var selected = list.SelectedItems.Cast<ExportPage>().ToHashSet();
+        draggingPages = orderedPages.Where(selected.Contains).ToArray();
+        dragCandidate = null; collapseSelectionOnClick = false;
+        scrollTimer.Start();
+        try { DragDrop.DoDragDrop(list, new DataObject(DragFormat, draggingPages), DragDropEffects.Move); }
+        finally { scrollTimer.Stop(); draggingPages = null; ClearDropMarker(); }
+        e.Handled = true;
+    }
+
+    private bool InsideList(Point point) => point.X >= 0 && point.Y >= 0 && point.X < list.ActualWidth && point.Y < list.ActualHeight;
+
+    private (int Gap, double Y, string Label)? DropPosition(Point point)
+    {
+        if (!InsideList(point)) return null;
+        var source = list.InputHitTest(point) as DependencyObject;
+        var row = source is null ? null : ItemsControl.ContainerFromElement(list, source) as ListBoxItem;
+        if (row?.DataContext is ExportPage page)
+        {
+            int index = orderedPages.IndexOf(page);
+            var top = row.TranslatePoint(new Point(0, 0), list).Y;
+            bool before = point.Y < top + row.ActualHeight / 2;
+            return (index + (before ? 0 : 1), top + (before ? 0 : row.ActualHeight), $"放在第 {index + 1} 页{(before ? "前" : "后")}");
+        }
+        // The empty area below the last row is also a valid destination.
+        if (orderedPages.Count > 0 && list.ItemContainerGenerator.ContainerFromIndex(orderedPages.Count - 1) is ListBoxItem last)
+        {
+            var bottom = last.TranslatePoint(new Point(0, last.ActualHeight), list).Y;
+            if (point.Y >= bottom) return (orderedPages.Count, bottom, "放到最后");
+        }
+        return null;
+    }
+
+    private bool UpdateDropMarker(Point point)
+    {
+        var destination = DropPosition(point);
+        if (destination is null) { ClearDropMarker(); return false; }
+        if (dropMarker is null)
+        {
+            dropLayer = AdornerLayer.GetAdornerLayer(list);
+            if (dropLayer is not null) { dropMarker = new PageDropAdorner(list); dropLayer.Add(dropMarker); }
+        }
+        if (dropMarker is not null)
+        {
+            dropMarker.Position = destination.Value.Y;
+            dropMarker.Label = $"移动 {draggingPages?.Length ?? 0} 页 · {destination.Value.Label}";
+            dropMarker.InvalidateVisual();
+        }
+        return true;
+    }
+
+    private void ClearDropMarker()
+    {
+        if (dropMarker is not null) dropLayer?.Remove(dropMarker);
+        dropMarker = null; dropLayer = null;
+    }
+
+    private void List_DragOver(object sender, DragEventArgs e)
+    {
+        bool valid = draggingPages is not null && ReferenceEquals(e.Data.GetData(DragFormat), draggingPages);
+        e.Effects = valid && UpdateDropMarker(e.GetPosition(list)) ? DragDropEffects.Move : DragDropEffects.None;
+        if (!valid) ClearDropMarker();
+        e.Handled = true;
+    }
+
+    private void List_Drop(object sender, DragEventArgs e)
+    {
+        var destination = DropPosition(e.GetPosition(list));
+        e.Effects = DragDropEffects.None;
+        if (draggingPages is not null && ReferenceEquals(e.Data.GetData(DragFormat), draggingPages) && destination is not null)
+        {
+            MoveToGap(draggingPages, destination.Value.Gap); e.Effects = DragDropEffects.Move;
+        }
+        ClearDropMarker(); e.Handled = true;
+    }
+
+    private void MoveToGap(IEnumerable<ExportPage> pages, int gap)
+    {
+        if (gap < 0 || gap > orderedPages.Count) return;
+        var moving = pages.ToHashSet();
+        var items = orderedPages.Where(moving.Contains).ToArray();
+        var target = orderedPages.Where(p => !moving.Contains(p)).ToList();
+        int insertion = gap - orderedPages.Take(gap).Count(moving.Contains);
+        target.InsertRange(insertion, items);
+        for (int i = 0; i < target.Count; i++)
+        {
+            int current = orderedPages.IndexOf(target[i]);
+            if (current != i) orderedPages.Move(current, i);
+        }
+        list.SelectedItems.Clear(); foreach (var page in items) list.SelectedItems.Add(page);
+        if (list.SelectedItem is not null) list.ScrollIntoView(list.SelectedItem);
+        Refresh();
+    }
+
+    private void AutoScroll()
+    {
+        if (draggingPages is null) return;
+        var point = Mouse.GetPosition(list);
+        if (!InsideList(point)) return;
+        var viewer = FindScrollViewer(list);
+        if (viewer is null) return;
+        if (point.Y < 35) viewer.LineUp();
+        else if (point.Y > list.ActualHeight - 35) viewer.LineDown();
+        else return;
+        list.UpdateLayout(); UpdateDropMarker(point);
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject root)
+    {
+        if (root is ScrollViewer viewer) return viewer;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var found = FindScrollViewer(VisualTreeHelper.GetChild(root, i));
+            if (found is not null) return found;
+        }
+        return null;
     }
 
     private void Export_Click(object sender, RoutedEventArgs e)
