@@ -11,6 +11,10 @@ internal static class Program
     {
         static void Check(bool result, string name) { if (!result) throw new Exception(name); Console.WriteLine("PASS " + name); }
         var image = BitmapSource.Create(20, 20, 96, 96, PixelFormats.Bgr24, null, new byte[1200], 60); image.Freeze();
+        Check(ExportFileName.FromTitle(" 三年级期中复习 ") == "三年级期中复习.pdf", "PDF name defaults to trimmed title");
+        Check(ExportFileName.FromTitle("练习.PDF") == "练习.pdf" && ExportFileName.FromTitle("... ") == "错题练习.pdf", "PDF suffix is not duplicated and empty title falls back");
+        Check(ExportFileName.FromTitle("语文/数学:练习?") == "语文_数学_练习_.pdf", "illegal Windows filename characters are replaced");
+        Check(ExportFileName.FromTitle("CON") == "_CON.pdf" && ExportFileName.FromTitle("LPT1.notes") == "_LPT1.notes.pdf", "reserved Windows device names remain saveable");
         var legacy = new LibraryConfig { Collections = new() { "默认错题集", "语文-同步第一单元", "空集" } };
         var questions = new[]
         {

@@ -1092,7 +1092,8 @@ public partial class MainWindow : Window
         var visible = FilteredQuestions();
         if (questions.Count == 0) { MessageBox.Show("请先加入错题。", "没有可预览的题目"); return; }
         var preview = new PreviewWindow(questions.ToArray(), library, visible) { Owner = this };
-        if (preview.ShowDialog() == true && preview.ExportedPath is not null) Status.Text = "PDF 已保存：" + preview.ExportedPath;
+        preview.ShowDialog();
+        if (preview.ExportedPath is not null) Status.Text = "PDF 已保存：" + preview.ExportedPath;
     }
     private void ExportQuestions_Click(object sender, RoutedEventArgs e)
     {

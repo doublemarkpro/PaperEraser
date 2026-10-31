@@ -5,7 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace PaperEraser;
-internal sealed class PreviewWindow : Window
+internal sealed partial class PreviewWindow : Window
 {
     private IReadOnlyList<BitmapSource> images;
     private PaperSelection? selection;
@@ -19,6 +19,7 @@ internal sealed class PreviewWindow : Window
     private readonly ComboBox columns = new() { Width = 100, Height = 32, ItemsSource = new[] { "一页单列", "一页两列" }, SelectedIndex = 0 };
     private readonly StackPanel preview = new() { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(16, 8, 16, 16) };
     private readonly TextBlock summary = UiFactory.Hint("");
+    private readonly ScrollViewer previewScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Background = UiFactory.Brush("#ECF1F7") };
     private bool ready;
     internal string? ExportedPath { get; private set; }
     internal PreviewWindow(IReadOnlyList<BitmapSource> images)
@@ -37,7 +38,7 @@ internal sealed class PreviewWindow : Window
         columns.ToolTip = "两列按左列从上到下，再到右列；列间距 8 毫米，大小百分比相对每列可用宽度。";
         header.Children.Add(controls); summary.Margin = new Thickness(0, 5, 0, 10); header.Children.Add(summary);
         DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
-        root.Children.Add(new ScrollViewer { Content = preview, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Background = UiFactory.Brush("#ECF1F7") });
+        root.Children.Add(CreatePreviewArea());
         Content = root; export.Click += Export_Click;
         title.TextChanged += (_, _) => UpdatePreview(); scale.SelectionChanged += (_, _) => UpdatePreview(); gap.SelectionChanged += (_, _) => UpdatePreview(); blank.SelectionChanged += (_, _) => UpdatePreview(); margins.SelectionChanged += (_, _) => UpdatePreview();
         columns.SelectionChanged += (_, _) => UpdatePreview();
@@ -99,7 +100,7 @@ internal sealed class PreviewWindow : Window
     {
         if (!ready) return;
         exportButton.IsEnabled = images.Count > 0;
-        if (images.Count == 0) { preview.Children.Clear(); summary.Text = "尚未选题：可切换错题集勾选题目，选择会保留。"; return; }
+        if (images.Count == 0) { preview.Children.Clear(); UpdatePageCount(0); summary.Text = "尚未选题：可切换错题集勾选题目，选择会保留。"; return; }
         try
         {
             var layout = PdfExporter.Layout(images, Options()); preview.Children.Clear();
@@ -114,14 +115,23 @@ internal sealed class PreviewWindow : Window
                 preview.Children.Add(canvas);
             }
             summary.Text = $"{images.Count} 道题 · {layout.Count} 页 · A4 {(columns.SelectedIndex == 1 ? "双列（先左后右）" : "单列")}";
+            UpdatePageCount(layout.Count);
         }
         catch (Exception ex) { summary.Text = "无法预览：" + ex.Message; }
     }
     private void Export_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SaveFileDialog { Filter = "PDF 文档|*.pdf", FileName = "错题练习.pdf", DefaultExt = ".pdf" };
-        if (dialog.ShowDialog() != true) return;
-        try { PdfExporter.Save(dialog.FileName, images, Options()); ExportedPath = dialog.FileName; DialogResult = true; }
+        if (images.Count == 0) return;
+        var dialog = new SaveFileDialog { Filter = "PDF 文档|*.pdf", FileName = ExportFileName.FromTitle(title.Text), DefaultExt = ".pdf" };
+        if (dialog.ShowDialog(this) != true) return;
+        try { SavePdf(dialog.FileName); }
         catch (Exception ex) { MessageBox.Show(ex.Message, "导出失败", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+    private void SavePdf(string path)
+    {
+        PdfExporter.Save(path, images, Options());
+        ExportedPath = path;
+        exportStatus.Text = $"✓ 上次导出成功（{images.Count} 道题，{pageCount} 页）\n{path}";
+        exportNotice.Visibility = Visibility.Visible;
     }
 }
