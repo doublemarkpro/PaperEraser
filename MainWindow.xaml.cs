@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<Worksheet> pages = new();
     private Worksheet? currentPage;
     private bool stopBatch;
+    private PhoneTransferWindow? phoneTransferWindow;
     private bool sessionWritable = true;
     private bool loadingSession;
     private string sessionHash = "";
@@ -61,6 +62,7 @@ public partial class MainWindow : Window
             if (!sessionWritable && pages.Any(p => p.Regions.Count > 0) && MessageBox.Show("试卷进度自动保存不可用，未加入错题集的选区会丢失。确认关闭吗？", "关闭程序", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) e.Cancel = true;
             if (isBusy && !e.Cancel && MessageBox.Show("批量处理仍在进行，关闭可能中断请求且仍可能消耗额度。确认关闭吗？", "处理进行中", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) e.Cancel = true;
         };
+        Closed += async (_, _) => { if (phoneTransferWindow is not null) await phoneTransferWindow.ShutdownAsync(); };
         questionView = CollectionViewSource.GetDefaultView(questions);
         questionView.Filter = QuestionMatches;
         QuestionList.ItemsSource = questionView;
@@ -592,7 +594,14 @@ public partial class MainWindow : Window
     }
     private void Phone_Click(object sender, RoutedEventArgs e)
     {
-        var window = new PhoneTransferWindow { Owner = this }; window.ShowDialog();
+        if (phoneTransferWindow is null)
+        {
+            phoneTransferWindow = new PhoneTransferWindow { Owner = this };
+            phoneTransferWindow.Closed += (_, _) => phoneTransferWindow = null;
+        }
+        phoneTransferWindow.Show();
+        if (phoneTransferWindow.WindowState == WindowState.Minimized) phoneTransferWindow.WindowState = WindowState.Normal;
+        phoneTransferWindow.Activate();
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
