@@ -60,6 +60,18 @@ internal static class Program
         Check(Math.Abs(oneColumn[0][0].Width - (PdfExporter.PageWidth - 2 * marginPoints)) < .001, "default single-column layout retains original width");
         var alternating = new[] { image, tall, image, tall, image };
         Check(PdfExporter.Layout(alternating, new(Columns: 2)).SelectMany(p => p).Select(p => p.Image).SequenceEqual(alternating), "column layout preserves selected question sequence");
+        foreach (var columnCount in new[] { 1, 2 })
+        {
+            var originalLayout = PdfExporter.Layout(Enumerable.Repeat(tall, 5).ToArray(), new("带页码试卷", MarginMm: 8, Columns: columnCount));
+            foreach (var alignment in Enum.GetValues<PdfExporter.FooterAlignment>())
+            {
+                var numbered = PdfExporter.Layout(Enumerable.Repeat(tall, 5).ToArray(), new("带页码试卷", MarginMm: 8, Columns: columnCount, PageNumbers: true, NumberAlignment: alignment));
+                Check(numbered.Count == originalLayout.Count && numbered.Select((p, i) => p.Take(p.Count - 1).Select(f => (f.X, f.Y, f.Width, f.Height)).SequenceEqual(originalLayout[i].Select(f => (f.X, f.Y, f.Width, f.Height)))).All(v => v) && numbered.SelectMany(p => p).Count(f => ReferenceEquals(f.Image, tall)) == 5, "page numbers preserve question positions and page count");
+                Check(numbered.Select((p, i) => p.Last().Text == $"{i + 1} / {numbered.Count}").All(v => v), "every footer has correct page and total after pagination");
+                Check(numbered.All(p => { var f = p.Last(); return f.Y >= 0 && f.Y + f.Height < 8 * 72 / 25.4 && (alignment == PdfExporter.FooterAlignment.Left ? Math.Abs(f.X - 8 * 72 / 25.4) < .001 : alignment == PdfExporter.FooterAlignment.Center ? Math.Abs(f.X + f.Width / 2 - PdfExporter.PageWidth / 2) < .001 : Math.Abs(f.X + f.Width - (PdfExporter.PageWidth - 8 * 72 / 25.4)) < .001); }), "left center and right footers fit within bottom margin");
+            }
+        }
+        Check(PdfExporter.Layout(new[] { image }, new(PageNumbers: true, NumberStyle: PdfExporter.PageNumberStyle.Page))[0].Last().Text == "1", "page-only format omits total");
         Check(migrated.Config.Version == 3 && migrated.Config.Collections.Count == 5, "mixed legacy collection is split by subject");
         Check(migrated.Questions.Length == 3 && migrated.Questions.Select(q => q.Label).SequenceEqual(questions.Select(q => q.Label)) && migrated.Questions.All(q => ReferenceEquals(q.Image, image)), "migration preserves images, order and question count");
         Check(migrated.Questions.Select(q => q.Collection).Distinct().Count() == 3 && migrated.Questions.All(q => LibraryCatalog.Entry(migrated.Config, q.Collection).Subject == q.Subject), "every migrated question matches its parent subject");

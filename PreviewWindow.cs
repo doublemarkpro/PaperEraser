@@ -17,6 +17,9 @@ internal sealed partial class PreviewWindow : Window
     private readonly ComboBox blank = new() { Width = 70, Height = 32, ItemsSource = new[] { 0, 5, 10, 15, 20, 30, 40, 50 }, SelectedItem = 0 };
     private readonly ComboBox margins = new() { Width = 70, Height = 32, ItemsSource = new[] { 8, 10, 13, 15, 20, 25 }, SelectedItem = 13 };
     private readonly ComboBox columns = new() { Width = 100, Height = 32, ItemsSource = new[] { "一页单列", "一页两列" }, SelectedIndex = 0 };
+    private readonly CheckBox pageNumbers = new() { Content = "显示页码", VerticalContentAlignment = VerticalAlignment.Center, Height = 32 };
+    private readonly ComboBox numberAlignment = new() { Width = 85, Height = 32, ItemsSource = new[] { "左侧", "居中", "右侧" }, SelectedIndex = 1, IsEnabled = false };
+    private readonly ComboBox numberStyle = new() { Width = 145, Height = 32, ItemsSource = new[] { "仅页码", "页码 / 总页数" }, SelectedIndex = 1, IsEnabled = false };
     private readonly StackPanel preview = new() { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(16, 8, 16, 16) };
     private readonly TextBlock summary = UiFactory.Hint("");
     private readonly ScrollViewer previewScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Background = UiFactory.Brush("#ECF1F7") };
@@ -37,11 +40,21 @@ internal sealed partial class PreviewWindow : Window
         Add("标题", title); Add("排版", columns); Add("列内大小 %", scale); Add("间距", gap); Add("答题留白", blank); Add("页边距", margins);
         columns.ToolTip = "两列按左列从上到下，再到右列；列间距 8 毫米，大小百分比相对每列可用宽度。";
         header.Children.Add(controls); summary.Margin = new Thickness(0, 5, 0, 10); header.Children.Add(summary);
+        var footerControls = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        pageNumbers.Margin = new Thickness(0, 0, 16, 0); footerControls.Children.Add(pageNumbers);
+        footerControls.Children.Add(new TextBlock { Text = "页脚位置", VerticalAlignment = VerticalAlignment.Center, Foreground = UiFactory.Brush("#617694"), Margin = new Thickness(0, 0, 6, 0) });
+        numberAlignment.Margin = new Thickness(0, 0, 12, 0); footerControls.Children.Add(numberAlignment);
+        footerControls.Children.Add(new TextBlock { Text = "格式", VerticalAlignment = VerticalAlignment.Center, Foreground = UiFactory.Brush("#617694"), Margin = new Thickness(0, 0, 6, 0) });
+        footerControls.Children.Add(numberStyle); header.Children.Insert(header.Children.Count - 1, footerControls);
+        pageNumbers.ToolTip = "在每页底部添加页码，预览与导出的 PDF 同时生效。";
         DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         root.Children.Add(CreatePreviewArea());
         Content = root; export.Click += Export_Click;
         title.TextChanged += (_, _) => UpdatePreview(); scale.SelectionChanged += (_, _) => UpdatePreview(); gap.SelectionChanged += (_, _) => UpdatePreview(); blank.SelectionChanged += (_, _) => UpdatePreview(); margins.SelectionChanged += (_, _) => UpdatePreview();
         columns.SelectionChanged += (_, _) => UpdatePreview();
+        void FooterChanged() { numberAlignment.IsEnabled = numberStyle.IsEnabled = pageNumbers.IsChecked == true; UpdatePreview(); }
+        pageNumbers.Checked += (_, _) => FooterChanged(); pageNumbers.Unchecked += (_, _) => FooterChanged();
+        numberAlignment.SelectionChanged += (_, _) => UpdatePreview(); numberStyle.SelectionChanged += (_, _) => UpdatePreview();
         ready = true; UpdatePreview();
     }
     internal PreviewWindow(IReadOnlyList<QuestionItem> questions, LibraryConfig library, IReadOnlyList<QuestionItem> initial)
@@ -95,7 +108,7 @@ internal sealed partial class PreviewWindow : Window
         if (selection is null) return;
         images = selection.Selected.Select(q => q.Image).ToArray(); UpdatePreview();
     }
-    private PdfExporter.LayoutOptions Options() => new(title.Text.Trim(), (int)(margins.SelectedItem ?? 13), (int)(gap.SelectedItem ?? 5), (int)(blank.SelectedItem ?? 0), (int)(scale.SelectedItem ?? 100), columns.SelectedIndex == 1 ? 2 : 1);
+    private PdfExporter.LayoutOptions Options() => new(title.Text.Trim(), (int)(margins.SelectedItem ?? 13), (int)(gap.SelectedItem ?? 5), (int)(blank.SelectedItem ?? 0), (int)(scale.SelectedItem ?? 100), columns.SelectedIndex == 1 ? 2 : 1, pageNumbers.IsChecked == true, (PdfExporter.FooterAlignment)numberAlignment.SelectedIndex, (PdfExporter.PageNumberStyle)numberStyle.SelectedIndex);
     private void UpdatePreview()
     {
         if (!ready) return;

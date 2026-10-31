@@ -11,8 +11,18 @@ internal static class PdfExporter
 {
     internal const double PageWidth = 595.28, PageHeight = 841.89;
     private const double PointsPerMm = 72.0 / 25.4;
-    internal sealed record LayoutOptions(string Title = "", double MarginMm = 12.7, double GapMm = 5, double AnswerSpaceMm = 0, double ScalePercent = 100, int Columns = 1);
-    internal sealed record Placement(BitmapSource Image, double X, double Y, double Width, double Height);
+    internal enum FooterAlignment { Left, Center, Right }
+    internal enum PageNumberStyle { Page, PageAndTotal }
+    internal sealed record LayoutOptions(string Title = "", double MarginMm = 12.7, double GapMm = 5, double AnswerSpaceMm = 0, double ScalePercent = 100, int Columns = 1, bool PageNumbers = false, FooterAlignment NumberAlignment = FooterAlignment.Center, PageNumberStyle NumberStyle = PageNumberStyle.PageAndTotal);
+    internal sealed record Placement(BitmapSource Image, double X, double Y, double Width, double Height, string? Text = null);
+    private static BitmapSource FooterImage(string text)
+    {
+        var formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 36, Brushes.Black, 1);
+        int width = (int)Math.Ceiling(formatted.WidthIncludingTrailingWhitespace) + 4, height = (int)Math.Ceiling(formatted.Height) + 4;
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen()) { drawing.DrawRectangle(Brushes.White, null, new Rect(0, 0, width, height)); drawing.DrawText(formatted, new Point(2, 2)); }
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual); bitmap.Freeze(); return bitmap;
+    }
     private static BitmapSource TitleImage(string text)
     {
         var visual = new DrawingVisual();
@@ -31,6 +41,7 @@ internal static class PdfExporter
         options ??= new LayoutOptions();
         if (options.MarginMm < 8 || options.MarginMm > 25 || options.GapMm < 0 || options.GapMm > 30 || options.AnswerSpaceMm < 0 || options.AnswerSpaceMm > 50 || options.ScalePercent < 40 || options.ScalePercent > 100 || options.Title.Length > 50) throw new ArgumentException("排版参数超出允许范围。");
         if (options.Columns is not 1 and not 2) throw new ArgumentException("仅支持单列或双列排版。");
+        if (!Enum.IsDefined(options.NumberAlignment) || !Enum.IsDefined(options.NumberStyle)) throw new ArgumentException("页码设置无效。");
         var margin = options.MarginMm * PointsPerMm; var gap = options.GapMm * PointsPerMm; var blank = options.AnswerSpaceMm * PointsPerMm;
         var pages = new List<List<Placement>>(); var page = new List<Placement>(); pages.Add(page);
         double top = PageHeight - margin; var widthAvailable = PageWidth - 2 * margin;
@@ -59,6 +70,16 @@ internal static class PdfExporter
             }
             var x = margin + column * (columnWidth + 8 * PointsPerMm) + (columnWidth - width) / 2;
             page.Add(new Placement(image, x, top - height, width, height)); top -= height + blank + gap; columnItems++;
+        }
+        if (options.PageNumbers)
+        {
+            for (int i = 0; i < pages.Count; i++)
+            {
+                var text = options.NumberStyle == PageNumberStyle.PageAndTotal ? $"{i + 1} / {pages.Count}" : $"{i + 1}";
+                var footer = FooterImage(text); double width = footer.PixelWidth / 4.0, height = footer.PixelHeight / 4.0;
+                var x = options.NumberAlignment switch { FooterAlignment.Left => margin, FooterAlignment.Right => PageWidth - margin - width, _ => (PageWidth - width) / 2 };
+                pages[i].Add(new(footer, x, Math.Max(2, (margin - height) / 2), width, height, text));
+            }
         }
         return pages;
     }
