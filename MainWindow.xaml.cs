@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private string basketHash = "";
     private string selectedCollection = "全部错题";
     private string selectedSubject = "全部学科";
+    private bool refreshingLibrary;
     public MainWindow()
     {
         InitializeComponent();
@@ -182,35 +183,102 @@ public partial class MainWindow : Window
     }
     private void SyncLibrary()
     {
-        if (library.Collections.Count == 0) library.Collections.Add("默认错题集");
-        foreach (var name in questions.Select(q => q.Collection).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct()) if (!library.Collections.Contains(name)) library.Collections.Add(name);
-        foreach (var name in questions.Select(q => q.Subject).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct()) if (!library.Subjects.Contains(name)) library.Subjects.Add(name);
+        var normalized = LibraryCatalog.Normalize(library, questions.ToArray());
+        bool configChanged = JsonSerializer.Serialize(library) != JsonSerializer.Serialize(normalized.Config);
+        bool questionsChanged = !questions.SequenceEqual(normalized.Questions);
+        if (!configChanged && !questionsChanged) return;
+        if (!CommitCatalog(normalized.Config, questionsChanged ? normalized.Questions : null))
+            throw new IOException("无法完成学科分类迁移。原数据已保留，请检查数据目录写入权限后重启软件。");
     }
     private void RefreshLibraryControls()
     {
-        if (!library.Collections.Contains(selectedCollection) && selectedCollection != "全部错题") selectedCollection = "全部错题";
-        if (!library.Subjects.Contains(selectedSubject) && selectedSubject != "全部学科") selectedSubject = "全部学科";
-        CollectionList.ItemsSource = new[] { "全部错题" }.Concat(library.Collections).ToArray(); CollectionList.SelectedItem = selectedCollection;
-        SubjectFilter.ItemsSource = new[] { "全部学科" }.Concat(library.Subjects).ToArray(); SubjectFilter.SelectedItem = selectedSubject;
-        var target = TargetCollection.SelectedItem as string;
-        TargetCollection.ItemsSource = library.Collections.ToArray(); TargetCollection.SelectedItem = library.Collections.Contains(target ?? "") ? target : library.Collections.FirstOrDefault();
-        var subjectTarget = TargetSubject.SelectedItem as string;
-        TargetSubject.ItemsSource = new[] { "未分类" }.Concat(library.Subjects).ToArray();
-        TargetSubject.SelectedItem = subjectTarget is not null && (subjectTarget == "未分类" || library.Subjects.Contains(subjectTarget)) ? subjectTarget : "未分类";
-        CollectionTitle.Text = selectedCollection; questionView?.Refresh();
+        refreshingLibrary = true;
+        try
+        {
+            if (!library.Subjects.Contains(selectedSubject) && selectedSubject is not "全部学科" and not "未分类") selectedSubject = "全部学科";
+            var entries = LibraryCatalog.Entries(library).Where(c => selectedSubject == "全部学科" || c.Subject == LibraryCatalog.SubjectKey(selectedSubject)).ToArray();
+            if (!entries.Any(c => c.Id == selectedCollection)) selectedCollection = "全部错题";
+            var all = new CollectionEntry("全部错题", selectedSubject == "全部学科" ? "全部错题" : selectedSubject + " · 全部错题", "");
+            var view = new ListCollectionView(new[] { all }.Concat(entries).ToArray());
+            if (selectedSubject == "全部学科") view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(CollectionEntry.GroupName)));
+            CollectionList.ItemsSource = view; CollectionList.SelectedValue = selectedCollection;
+            SubjectFilter.ItemsSource = new[] { "全部学科", "未分类" }.Concat(library.Subjects).ToArray(); SubjectFilter.SelectedItem = selectedSubject;
+            var subjectTarget = TargetSubject.SelectedItem as string;
+            TargetSubject.ItemsSource = new[] { "未分类" }.Concat(library.Subjects).ToArray();
+            TargetSubject.SelectedItem = subjectTarget is not null && (subjectTarget == "未分类" || library.Subjects.Contains(subjectTarget)) ? subjectTarget : "未分类";
+            RefreshTargetCollections();
+            UpdateCollectionTitle(); questionView?.Refresh();
+        }
+        finally { refreshingLibrary = false; }
     }
     private void CollectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (CollectionList?.SelectedItem is not string value) return;
-        selectedCollection = value; if (CollectionTitle is not null) CollectionTitle.Text = value;
-        if (value != "全部错题" && TargetCollection is not null) TargetCollection.SelectedItem = value;
+        if (refreshingLibrary || CollectionList?.SelectedItem is not CollectionEntry value) return;
+        selectedCollection = value.Id; UpdateCollectionTitle();
+        if (value.Id != "全部错题" && TargetCollection is not null)
+        {
+            TargetSubject.SelectedItem = string.IsNullOrWhiteSpace(value.Subject) ? "未分类" : value.Subject;
+            RefreshTargetCollections(value.Id);
+        }
         questionView?.Refresh();
+    }
+    private void UpdateCollectionTitle()
+    {
+        CollectionTitle.Text = selectedCollection == "全部错题"
+            ? selectedSubject == "全部学科" ? "全部错题" : selectedSubject + " · 全部错题"
+            : LibraryCatalog.Entry(library, selectedCollection).Display;
+        CollectionScopeTitle.Text = selectedSubject == "全部学科" ? "学科 / 错题集" : selectedSubject + "错题集";
+    }
+    private void RefreshTargetCollections(string? preferred = null)
+    {
+        var target = preferred ?? TargetCollection.SelectedValue as string;
+        var subject = LibraryCatalog.SubjectKey(TargetSubject.SelectedItem as string);
+        var entries = LibraryCatalog.Entries(library).Where(c => c.Subject == subject).ToArray();
+        TargetCollection.ItemsSource = entries;
+        TargetCollection.SelectedValue = entries.Any(c => c.Id == target) ? target : entries.FirstOrDefault()?.Id;
+    }
+    private void TargetSubject_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (refreshingLibrary || TargetCollection is null) return;
+        RefreshTargetCollections();
+    }
+    private bool TryGetQuestionTarget(out string target, out string subject)
+    {
+        target = TargetCollection.SelectedValue as string ?? "";
+        subject = target.Length > 0 ? LibraryCatalog.Entry(library, target).Subject : "";
+        if (library.Collections.Contains(target)) return true;
+        MessageBox.Show(this, "请先为当前学科新建或选择一个错题集，再加入题目。", "请选择错题集", MessageBoxButton.OK, MessageBoxImage.Information); return false;
+    }
+    private bool CommitCatalog(LibraryConfig proposed, IReadOnlyList<QuestionItem>? updated = null)
+    {
+        if (!libraryWritable || (updated is not null && !basketStorageAvailable)) { MessageBox.Show("本地数据当前不可写，无法修改学科分类。"); return false; }
+        try
+        {
+            if (updated is not null)
+            {
+                EnsureBasketUnchanged(); BackupService.Restore(new BackupData(updated, proposed)); basketHash = BasketFingerprint();
+            }
+            else
+            {
+                if (library.Version < 2 && File.Exists(LibraryStore.PathName)) File.Copy(LibraryStore.PathName, LibraryStore.PathName + ".before-subject-groups-" + Guid.NewGuid().ToString("N"));
+                LibraryStore.Save(proposed);
+            }
+            library = proposed;
+            if (updated is not null)
+            {
+                suppressBasketSave = true;
+                try { questions.Clear(); foreach (var item in updated) questions.Add(item); }
+                finally { suppressBasketSave = false; }
+            }
+            return true;
+        }
+        catch (Exception ex) { MessageBox.Show(this, "无法保存学科和错题集，原数据已保留：\n" + ex.Message, "保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
     }
     private ListBoxItem? CollectionContainer(DependencyObject? source) => source is null ? null : ItemsControl.ContainerFromElement(CollectionList, source) as ListBoxItem;
     private void CollectionList_MouseDown(object sender, MouseButtonEventArgs e)
     {
         collectionDragStart = e.GetPosition(CollectionList);
-        collectionDragCandidate = CollectionContainer(e.OriginalSource as DependencyObject)?.DataContext as string;
+        collectionDragCandidate = (CollectionContainer(e.OriginalSource as DependencyObject)?.DataContext as CollectionEntry)?.Id;
         if (collectionDragCandidate == "全部错题") collectionDragCandidate = null;
     }
     private void CollectionList_MouseMove(object sender, MouseEventArgs e)
@@ -224,7 +292,8 @@ public partial class MainWindow : Window
             collectionDragInProgress = true;
         }
         var target = CollectionAtPoint(point);
-        if (target?.DataContext is not string targetName || targetName == collectionDragCandidate)
+        var targetName = (target?.DataContext as CollectionEntry)?.Id;
+        if (target is null || targetName is null || targetName == collectionDragCandidate || (targetName != "全部错题" && LibraryCatalog.Entry(library, targetName).Subject != LibraryCatalog.Entry(library, collectionDragCandidate!).Subject))
         { ClearCollectionDropMarker(); return; }
         bool before = targetName != "全部错题" && e.GetPosition(target).Y < target.ActualHeight / 2;
         if (collectionDropMarker?.AdornedElement != target || collectionDropMarker.Before != before)
@@ -253,7 +322,7 @@ public partial class MainWindow : Window
     {
         if (!collectionDragInProgress) { collectionDragCandidate = null; return; }
         var source = collectionDragCandidate; var container = CollectionAtPoint(e.GetPosition(CollectionList));
-        var target = container?.DataContext as string;
+        var target = (container?.DataContext as CollectionEntry)?.Id;
         bool before = target != "全部错题" && container is not null && e.GetPosition(container).Y < container.ActualHeight / 2;
         EndCollectionDrag();
         if (source is not null && target is not null && source != target) ReorderCollections(source, target, before);
@@ -273,7 +342,9 @@ public partial class MainWindow : Window
         int from = library.Collections.IndexOf(source);
         int targetIndex = target == "全部错题" ? -1 : library.Collections.IndexOf(target);
         if (from < 0 || (targetIndex < 0 && target != "全部错题") || source == target) return false;
-        int destination = target == "全部错题" ? 0 : CollectionDropAdorner.DestinationIndex(from, targetIndex, before);
+        var subject = LibraryCatalog.Entry(library, source).Subject;
+        if (target != "全部错题" && LibraryCatalog.Entry(library, target).Subject != subject) return false;
+        int destination = target == "全部错题" ? library.Collections.FindIndex(id => LibraryCatalog.Entry(library, id).Subject == subject) : CollectionDropAdorner.DestinationIndex(from, targetIndex, before);
         if (destination == from) return false;
         var old = library.Collections.ToList(); library.Collections.RemoveAt(from); library.Collections.Insert(destination, source);
         if (!SaveLibrary()) { library.Collections = old; return false; }
@@ -281,7 +352,10 @@ public partial class MainWindow : Window
     }
     private void SubjectFilter_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (SubjectFilter?.SelectedItem is not string value) return; selectedSubject = value; questionView?.Refresh();
+        if (refreshingLibrary || SubjectFilter?.SelectedItem is not string value) return;
+        selectedSubject = value; selectedCollection = "全部错题";
+        if (value != "全部学科") TargetSubject.SelectedItem = value;
+        RefreshLibraryControls();
     }
     private bool SaveLibrary()
     {
@@ -301,21 +375,26 @@ public partial class MainWindow : Window
     }
     private void NewCollection_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new NameDialog("新建错题集", "错题集名称") { Owner = this }; if (dialog.ShowDialog() != true) return;
-        var name = dialog.Value; if (name == "全部错题" || library.Collections.Contains(name)) { MessageBox.Show("名称已存在，请使用其他名称。"); return; }
-        library.Collections.Add(name); if (!SaveLibrary()) { library.Collections.Remove(name); return; }
-        selectedCollection = name; RefreshLibraryControls(); TargetCollection.SelectedItem = name;
+        var initialSubject = ProcessPage.Visibility == Visibility.Visible ? LibraryCatalog.SubjectKey(TargetSubject.SelectedItem as string) : selectedSubject == "全部学科" ? library.Subjects.FirstOrDefault() ?? "" : LibraryCatalog.SubjectKey(selectedSubject);
+        var dialog = new CollectionSettingsWindow(library, initialSubject) { Owner = this }; if (dialog.ShowDialog() != true) return;
+        var proposed = library.Copy(); var id = LibraryCatalog.NewId(); proposed.Collections.Add(id);
+        proposed.CollectionDefinitions[id] = new CollectionDefinition(dialog.CollectionName, dialog.Subject);
+        if (!CommitCatalog(proposed)) return;
+        selectedSubject = dialog.Subject.Length > 0 ? dialog.Subject : "未分类"; selectedCollection = id;
+        RefreshLibraryControls(); TargetSubject.SelectedItem = selectedSubject; RefreshTargetCollections(id);
     }
     private void RenameCollection_Click(object sender, RoutedEventArgs e)
     {
         var old = selectedCollection;
         if (old == "全部错题") { MessageBox.Show("请先选择一个错题集。", "重命名错题集"); return; }
-        var dialog = new NameDialog("重命名错题集", "新的错题集名称", old) { Owner = this }; if (dialog.ShowDialog() != true || dialog.Value == old) return;
-        var name = dialog.Value; if (name == "全部错题" || library.Collections.Contains(name)) { MessageBox.Show("名称已存在，请使用其他名称。"); return; }
-        if (!libraryWritable) { MessageBox.Show("配置不可写，无法重命名。"); return; }
-        var updated = questions.Select(q => q.Collection == old ? q with { Collection = name } : q).ToArray();
-        if (!CommitQuestions(updated)) return;
-        library.Collections[library.Collections.IndexOf(old)] = name; selectedCollection = name; SaveLibrary(); RefreshLibraryControls(); TargetCollection.SelectedItem = name;
+        var current = LibraryCatalog.Entry(library, old);
+        var dialog = new CollectionSettingsWindow(library, current.Subject, old, questions.Count(q => q.Collection == old)) { Owner = this };
+        if (dialog.ShowDialog() != true || (dialog.CollectionName == current.Name && dialog.Subject == current.Subject)) return;
+        var proposed = library.Copy(); proposed.CollectionDefinitions[old] = new CollectionDefinition(dialog.CollectionName, dialog.Subject);
+        var updated = questions.Select(q => q.Collection == old ? q with { Subject = dialog.Subject } : q).ToArray();
+        if (!CommitCatalog(proposed, current.Subject != dialog.Subject ? updated : null)) return;
+        selectedSubject = dialog.Subject.Length > 0 ? dialog.Subject : "未分类";
+        RefreshLibraryControls(); TargetSubject.SelectedItem = selectedSubject; RefreshTargetCollections(old);
     }
     private void ManageSubjects_Click(object sender, RoutedEventArgs e)
     {
@@ -324,7 +403,7 @@ public partial class MainWindow : Window
         var root = new DockPanel { Margin = new Thickness(22) };
         var header = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
         header.Children.Add(new TextBlock { Text = "管理学科", FontSize = 22, FontWeight = FontWeights.SemiBold });
-        var hint = UiFactory.Hint("管理错题的学科分类。选中学科后可重命名或删除。"); hint.Margin = new Thickness(0, 6, 0, 0); header.Children.Add(hint);
+        var hint = UiFactory.Hint("学科是错题集的大类。重命名会同步更新其下的错题集和题目；删除前需移走该科的错题集。"); hint.Margin = new Thickness(0, 6, 0, 0); header.Children.Add(hint);
         DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         var row = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) }; DockPanel.SetDock(row, Dock.Bottom); root.Children.Add(row);
         var list = new ListBox { ItemsSource = library.Subjects.ToArray(), BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent, ItemContainerStyle = (Style)FindResource("CollectionItem") };
@@ -333,16 +412,20 @@ public partial class MainWindow : Window
         var add = new Button { Content = "＋ 添加学科" }; UiFactory.Primary(add);
         var rename = new Button { Content = "重命名" }; var remove = new Button { Content = "删除" };
         row.Children.Add(add); row.Children.Add(rename); row.Children.Add(remove); win.Content = root;
-        add.Click += (_, _) => { var d = new NameDialog("添加学科", "学科名称") { Owner = win }; if (d.ShowDialog() != true) return; if (d.Value == "全部学科" || library.Subjects.Contains(d.Value)) { MessageBox.Show("名称已存在。"); return; } library.Subjects.Add(d.Value); if (!SaveLibrary()) library.Subjects.Remove(d.Value); Reload(); };
+        add.Click += (_, _) => { var d = new NameDialog("添加学科", "学科名称") { Owner = win }; if (d.ShowDialog() != true) return; if (d.Value is "全部学科" or "未分类" || library.Subjects.Contains(d.Value)) { MessageBox.Show("名称已存在或为保留名称。"); return; } var proposed = library.Copy(); proposed.Subjects.Add(d.Value); if (CommitCatalog(proposed)) Reload(); };
         rename.Click += (_, _) =>
         {
             if (list.SelectedItem is not string old) return;
             var d = new NameDialog("重命名学科", "新的学科名称", old) { Owner = win }; if (d.ShowDialog() != true || d.Value == old) return;
-            if (d.Value == "全部学科" || library.Subjects.Contains(d.Value)) { MessageBox.Show("名称已存在。"); return; }
-            if (!libraryWritable || !CommitQuestions(questions.Select(q => q.Subject == old ? q with { Subject = d.Value } : q).ToArray())) return;
-            library.Subjects[library.Subjects.IndexOf(old)] = d.Value; if (selectedSubject == old) selectedSubject = d.Value; SaveLibrary(); Reload();
+            if (d.Value is "全部学科" or "未分类" || library.Subjects.Contains(d.Value)) { MessageBox.Show("名称已存在或为保留名称。"); return; }
+            var proposed = library.Copy(); proposed.Subjects[proposed.Subjects.IndexOf(old)] = d.Value;
+            foreach (var id in proposed.Collections.Where(id => LibraryCatalog.Entry(proposed, id).Subject == old)) proposed.CollectionDefinitions[id] = proposed.CollectionDefinitions[id] with { Subject = d.Value };
+            if (!CommitCatalog(proposed, questions.Select(q => q.Subject == old ? q with { Subject = d.Value } : q).ToArray())) return;
+            if (selectedSubject == old) selectedSubject = d.Value;
+            if (TargetSubject.SelectedItem as string == old) TargetSubject.SelectedItem = null;
+            Reload();
         };
-        remove.Click += (_, _) => { if (list.SelectedItem is not string name) return; if (questions.Any(q => q.Subject == name)) { MessageBox.Show("该学科仍有错题，请先修改这些题目的学科。", "无法删除"); return; } var index = library.Subjects.IndexOf(name); library.Subjects.RemoveAt(index); if (!SaveLibrary()) library.Subjects.Insert(index, name); Reload(); };
+        remove.Click += (_, _) => { if (list.SelectedItem is not string name) return; if (LibraryCatalog.Entries(library).Any(c => c.Subject == name) || questions.Any(q => q.Subject == name)) { MessageBox.Show("该学科仍有错题集或题目，请先通过“编辑/归类”将错题集移到其他学科。", "无法删除"); return; } var proposed = library.Copy(); proposed.Subjects.Remove(name); if (CommitCatalog(proposed)) Reload(); };
         win.ShowDialog();
     }
 
@@ -726,9 +809,8 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "请先在处理结果中框选题目上半部分，再切换到另一张图片框选下半部分，然后点击“跨页选区拼题”。\n\n至少需要两个选区，也支持同一页上的多个片段。", "跨页拼题", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var target = TargetCollection.SelectedItem as string ?? library.Collections.FirstOrDefault() ?? "默认错题集";
-        var subject = TargetSubject.SelectedItem as string ?? ""; if (subject == "未分类") subject = "";
-        var dialog = new QuestionStitchWindow(fragments, target, subject) { Owner = this };
+        if (!TryGetQuestionTarget(out var target, out var subject)) return;
+        var dialog = new QuestionStitchWindow(fragments, LibraryCatalog.Entry(library, target).Display, subject) { Owner = this };
         if (dialog.ShowDialog() != true || dialog.CombinedImage is null) return;
         if (!QuestionFragment.AreCurrent(dialog.SelectedFragments))
         {
@@ -738,12 +820,11 @@ public partial class MainWindow : Window
         var item = new QuestionItem(dialog.QuestionName, dialog.CombinedImage, Subject: subject, Collection: target);
         if (!CommitQuestions(questions.Append(item).ToArray())) return;
         QuestionFragment.Consume(dialog.SelectedFragments); RefreshRegions();
-        Status.Text = $"已将 {dialog.SelectedFragments.Count} 个片段拼成一道题加入“{target}”；其他选区仍保留。";
+        Status.Text = $"已将 {dialog.SelectedFragments.Count} 个片段拼成一道题加入“{LibraryCatalog.Entry(library, target).Display}”；其他选区仍保留。";
     }
     private void AddSelectedRegions(IEnumerable<Worksheet> sourcePages)
     {
-        var target = TargetCollection.SelectedItem as string ?? library.Collections.FirstOrDefault() ?? "默认错题集";
-        var subject = TargetSubject.SelectedItem as string; if (subject == "未分类") subject = "";
+        if (!TryGetQuestionTarget(out var target, out var subject)) return;
         var selectedPages = sourcePages.Where(p => p.Processed is not null && p.Regions.Count > 0).ToArray();
         var added = new List<QuestionItem>();
         foreach (var page in selectedPages)
@@ -758,13 +839,13 @@ public partial class MainWindow : Window
         if (!CommitQuestions(questions.Concat(added).ToArray())) return;
         foreach (var page in selectedPages) { page.Regions.Clear(); page.RegionsChanged(); }
         RefreshRegions();
-        Status.Text = $"已将 {added.Count} 道题加入“{target}”，可在错题集页面编辑名称与分类。";
+        Status.Text = $"已将 {added.Count} 道题加入“{LibraryCatalog.Entry(library, target).Display}”，可在错题集页面编辑名称与分类。";
     }
     private bool QuestionMatches(object value)
     {
         if (value is not QuestionItem item) return false;
         if (selectedCollection != "全部错题" && item.Collection != selectedCollection) return false;
-        if (selectedSubject != "全部学科" && item.Subject != selectedSubject) return false;
+        if (selectedSubject != "全部学科" && LibraryCatalog.Entry(library, item.Collection).Subject != LibraryCatalog.SubjectKey(selectedSubject)) return false;
         var query = SearchText?.Text.Trim() ?? "";
         if (query.Length > 0 && !new[] { item.Label, item.Subject, item.Topic, item.Notes }.Any(text => text.Contains(query, StringComparison.CurrentCultureIgnoreCase))) return false;
         var filter = (ReviewFilter?.SelectedItem as ComboBoxItem)?.Content as string ?? "全部";
@@ -845,7 +926,7 @@ public partial class MainWindow : Window
     private void EditQuestion_Click(object sender, RoutedEventArgs e)
     {
         if (QuestionList.SelectedItem is not QuestionItem selected) { MessageBox.Show("请先选中一道错题。", "编辑错题"); return; }
-        var editor = new QuestionEditorWindow(selected) { Owner = this };
+        var editor = new QuestionEditorWindow(selected, LibraryCatalog.Entry(library, selected.Collection).Subject) { Owner = this };
         if (editor.ShowDialog() != true || editor.Edited is null) return;
         var index = questions.IndexOf(selected); if (index < 0) return;
         questions[index] = editor.Edited;
@@ -864,10 +945,14 @@ public partial class MainWindow : Window
         var cancel = new Button { Content = "取消", IsCancel = true, Margin = new Thickness(8, 0, 0, 0), Padding = new Thickness(16, 6, 16, 6) };
         buttons.Children.Add(ok); buttons.Children.Add(cancel); DockPanel.SetDock(buttons, Dock.Bottom); root.Children.Add(buttons);
         var panel = new StackPanel(); panel.Children.Add(new TextBlock { Text = "移动到错题集", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12) }); panel.Children.Add(new TextBlock { Text = "选择目标错题集", Margin = new Thickness(0, 0, 0, 8) });
-        var choice = new ComboBox { ItemsSource = library.Collections.ToArray(), SelectedItem = selected.Collection, Padding = new Thickness(6) }; panel.Children.Add(choice); root.Children.Add(panel); dialog.Content = root;
-        ok.Click += (_, _) => { if (choice.SelectedItem is string) dialog.DialogResult = true; };
-        if (dialog.ShowDialog() != true || choice.SelectedItem is not string target) return;
-        var index = questions.IndexOf(selected); if (index >= 0) { var changed = selected with { Collection = target }; questions[index] = changed; QuestionList.SelectedItem = changed; }
+        var choices = LibraryCatalog.Entries(library).ToArray();
+        var choice = new ComboBox { ItemsSource = choices, DisplayMemberPath = nameof(CollectionEntry.Display), SelectedValuePath = nameof(CollectionEntry.Id), SelectedValue = selected.Collection, Padding = new Thickness(6) }; panel.Children.Add(choice); root.Children.Add(panel); dialog.Content = root;
+        ok.Click += (_, _) => { if (choice.SelectedItem is CollectionEntry) dialog.DialogResult = true; };
+        if (dialog.ShowDialog() != true || choice.SelectedItem is not CollectionEntry target) return;
+        var changed = selected with { Collection = target.Id, Subject = target.Subject };
+        if (!CommitQuestions(questions.Select(q => ReferenceEquals(q, selected) ? changed : q).ToArray())) return;
+        selectedSubject = target.Subject.Length > 0 ? target.Subject : "未分类"; selectedCollection = target.Id;
+        RefreshLibraryControls(); QuestionList.SelectedItem = changed;
     }
     private void MoveUp_Click(object sender, RoutedEventArgs e)
     {

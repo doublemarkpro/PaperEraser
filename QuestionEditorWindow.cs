@@ -13,7 +13,7 @@ internal sealed class QuestionEditorWindow : Window
     private QuestionImagePreviewWindow? previewWindow;
     internal QuestionItem? Edited { get; private set; }
 
-    internal QuestionEditorWindow(QuestionItem item)
+    internal QuestionEditorWindow(QuestionItem item, string? collectionSubject = null)
     {
         UiFactory.Configure(this); original = item; Title = "编辑错题"; Width = 600; Height = 820; MinWidth = 480; MinHeight = 560;
         var root = new DockPanel { Margin = new Thickness(22) };
@@ -43,6 +43,12 @@ internal sealed class QuestionEditorWindow : Window
         form.Children.Add(imageButton);
         void Add(string label, Control control) { form.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 9, 0, 5), Foreground = UiFactory.Brush("#506583") }); control.Padding = new Thickness(8, 6, 8, 6); form.Children.Add(control); }
         title.Text = item.CardTitle; subject.Text = item.Subject; topic.Text = item.Topic; notes.Text = item.Notes; notes.AcceptsReturn = true; notes.TextWrapping = TextWrapping.Wrap; notes.Height = 70;
+        if (collectionSubject is not null)
+        {
+            subject.Text = collectionSubject; subject.IsReadOnly = true; subject.Background = UiFactory.Brush("#F3F6FA");
+            subject.ToolTip = "学科由所属错题集决定。如需调整，可移动到其他学科的错题集，或编辑错题集的归属学科。";
+            hint.Text = "编辑题目和复习信息；学科由错题集决定，可在“编辑/归类”或“移动到错题集”中调整。";
+        }
         review.Items.Add("待复习"); review.Items.Add("复习中"); review.Items.Add("已掌握"); review.SelectedItem = item.ReviewStatus; if (review.SelectedIndex < 0) review.SelectedIndex = 0;
         date.SelectedDate = item.NextReview;
         Add("题目名称", title); Add("学科", subject); Add("知识点", topic); Add("复习状态", review); Add("下次复习日期（可留空）", date); Add("备注（可留空）", notes);

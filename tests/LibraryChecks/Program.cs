@@ -1,0 +1,52 @@
+using System.IO;
+using System.Text.Json;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using PaperEraser;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main()
+    {
+        static void Check(bool result, string name) { if (!result) throw new Exception(name); Console.WriteLine("PASS " + name); }
+        var image = BitmapSource.Create(20, 20, 96, 96, PixelFormats.Bgr24, null, new byte[1200], 60); image.Freeze();
+        var legacy = new LibraryConfig { Collections = new() { "默认错题集", "语文-同步第一单元", "空集" } };
+        var questions = new[]
+        {
+            new QuestionItem("语文题", image, "语文", Collection: "默认错题集"),
+            new QuestionItem("数学题", image, "数学", Collection: "默认错题集"),
+            new QuestionItem("未分类题", image, Collection: "默认错题集")
+        };
+        var migrated = LibraryCatalog.Normalize(legacy, questions);
+        Check(migrated.Config.Version == 2 && migrated.Config.Collections.Count == 5, "mixed legacy collection is split by subject");
+        Check(migrated.Questions.Length == 3 && migrated.Questions.Select(q => q.Label).SequenceEqual(questions.Select(q => q.Label)) && migrated.Questions.All(q => ReferenceEquals(q.Image, image)), "migration preserves images, order and question count");
+        Check(migrated.Questions.Select(q => q.Collection).Distinct().Count() == 3 && migrated.Questions.All(q => LibraryCatalog.Entry(migrated.Config, q.Collection).Subject == q.Subject), "every migrated question matches its parent subject");
+        Check(LibraryCatalog.Entry(migrated.Config, "语文-同步第一单元").Subject == "语文" && LibraryCatalog.Entry(migrated.Config, "空集").Subject == "", "empty collections use conservative prefix inference");
+        var repeated = LibraryCatalog.Normalize(migrated.Config, migrated.Questions);
+        Check(JsonSerializer.Serialize(repeated.Config) == JsonSerializer.Serialize(migrated.Config) && repeated.Questions.SequenceEqual(migrated.Questions), "migration is idempotent");
+        var catalog = migrated.Config.Copy();
+        catalog.Collections.AddRange(new[] { "chinese-unit", "math-unit" });
+        catalog.CollectionDefinitions["chinese-unit"] = new("同步第一单元", "语文");
+        catalog.CollectionDefinitions["math-unit"] = new("同步第一单元", "数学");
+        LibraryCatalog.Validate(catalog);
+        Check(!LibraryCatalog.NameAvailable(catalog, "同步第一单元", "语文") && LibraryCatalog.NameAvailable(catalog, "同步第一单元", "英语"), "same names are allowed across subjects but not within one subject");
+        var folder = Path.Combine(Path.GetTempPath(), "PaperEraserLibraryChecks-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder); BasketStore.TestDataDirectory = folder;
+        try
+        {
+            BasketStore.Save(BasketStore.DefaultPath, questions); LibraryStore.Save(legacy);
+            var recovery = BackupService.Restore(new BackupData(migrated.Questions, catalog));
+            Check(File.Exists(Path.Combine(recovery, "basket.json")) && File.Exists(Path.Combine(recovery, "library.json")), "migration transaction keeps original data backup");
+            var archive = Path.Combine(folder, "test.zip"); BackupService.Create(archive, BasketStore.Load(BasketStore.DefaultPath), LibraryStore.Load());
+            var roundtrip = BackupService.Read(archive);
+            Check(roundtrip.Questions.Count == 3 && roundtrip.Library.CollectionDefinitions["math-unit"].Subject == "数学", "backup retains subject ownership and questions");
+            var basketBefore = File.ReadAllBytes(BasketStore.DefaultPath); var configBefore = File.ReadAllBytes(LibraryStore.PathName);
+            var invalid = catalog.Copy(); invalid.CollectionDefinitions["math-unit"] = new("同步第一单元", "不存在的学科");
+            bool rejected = false;
+            try { BackupService.Restore(new BackupData(Array.Empty<QuestionItem>(), invalid)); } catch (IOException) { rejected = true; }
+            Check(rejected && File.ReadAllBytes(BasketStore.DefaultPath).SequenceEqual(basketBefore) && File.ReadAllBytes(LibraryStore.PathName).SequenceEqual(configBefore), "failed update rolls back both files");
+        }
+        finally { BasketStore.TestDataDirectory = null; Directory.Delete(folder, true); }
+    }
+}

@@ -50,7 +50,7 @@ internal static class BackupService
         if (format.RootElement.GetProperty("format").GetString() != "PaperEraserBackup" || format.RootElement.GetProperty("version").GetInt32() != 1) throw new InvalidDataException("不支持此备份格式。");
         var basket = ReadEntry(zip, "basket.json", MaxBasketBytes); var libraryBytes = ReadEntry(zip, "library.json", MaxLibraryBytes);
         var config = JsonSerializer.Deserialize<LibraryConfig>(libraryBytes) ?? throw new InvalidDataException("学科和错题集配置缺失。");
-        if (config.Subjects is null || config.Collections is null || config.Subjects.Any(string.IsNullOrWhiteSpace) || config.Collections.Any(string.IsNullOrWhiteSpace) || config.Subjects.Distinct().Count() != config.Subjects.Count || config.Collections.Distinct().Count() != config.Collections.Count || config.Subjects.Contains("全部学科") || config.Collections.Contains("全部错题")) throw new InvalidDataException("学科或错题集配置无效。");
+        LibraryCatalog.Validate(config);
         var temp = Path.Combine(Path.GetTempPath(), "papereraser-restore-" + Guid.NewGuid().ToString("N") + ".json");
         try { File.WriteAllBytes(temp, basket); return new BackupData(BasketStore.Load(temp), config); }
         finally { if (File.Exists(temp)) File.Delete(temp); }
