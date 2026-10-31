@@ -7,6 +7,7 @@
     <Compile Include="..\..\LibraryStore.cs" Link="LibraryStore.cs" />
     <Compile Include="..\..\LibraryTree.cs" Link="LibraryTree.cs" />
     <Compile Include="..\..\PaperSelection.cs" Link="PaperSelection.cs" />
+    <Compile Include="..\..\PdfExporter.cs" Link="PdfExporter.cs" />
     <Compile Include="..\..\BasketStore.cs" Link="BasketStore.cs" />
     <Compile Include="..\..\BackupService.cs" Link="BackupService.cs" />
   </ItemGroup>

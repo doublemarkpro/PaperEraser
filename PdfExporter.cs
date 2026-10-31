@@ -11,7 +11,7 @@ internal static class PdfExporter
 {
     internal const double PageWidth = 595.28, PageHeight = 841.89;
     private const double PointsPerMm = 72.0 / 25.4;
-    internal sealed record LayoutOptions(string Title = "", double MarginMm = 12.7, double GapMm = 5, double AnswerSpaceMm = 0, double ScalePercent = 100);
+    internal sealed record LayoutOptions(string Title = "", double MarginMm = 12.7, double GapMm = 5, double AnswerSpaceMm = 0, double ScalePercent = 100, int Columns = 1);
     internal sealed record Placement(BitmapSource Image, double X, double Y, double Width, double Height);
     private static BitmapSource TitleImage(string text)
     {
@@ -30,6 +30,7 @@ internal static class PdfExporter
         if (images.Count == 0) throw new ArgumentException("没有可导出的图片。");
         options ??= new LayoutOptions();
         if (options.MarginMm < 8 || options.MarginMm > 25 || options.GapMm < 0 || options.GapMm > 30 || options.AnswerSpaceMm < 0 || options.AnswerSpaceMm > 50 || options.ScalePercent < 40 || options.ScalePercent > 100 || options.Title.Length > 50) throw new ArgumentException("排版参数超出允许范围。");
+        if (options.Columns is not 1 and not 2) throw new ArgumentException("仅支持单列或双列排版。");
         var margin = options.MarginMm * PointsPerMm; var gap = options.GapMm * PointsPerMm; var blank = options.AnswerSpaceMm * PointsPerMm;
         var pages = new List<List<Placement>>(); var page = new List<Placement>(); pages.Add(page);
         double top = PageHeight - margin; var widthAvailable = PageWidth - 2 * margin;
@@ -38,20 +39,26 @@ internal static class PdfExporter
             var header = TitleImage(options.Title.Trim()); var headerHeight = widthAvailable * header.PixelHeight / header.PixelWidth;
             page.Add(new Placement(header, margin, top - headerHeight, widthAvailable, headerHeight)); top -= headerHeight + gap;
         }
+        double columnTop = top;
+        double columnWidth = (widthAvailable - (options.Columns - 1) * 8 * PointsPerMm) / options.Columns;
+        int column = 0, columnItems = 0;
         foreach (var image in images)
         {
-            var scale = Math.Min(widthAvailable * options.ScalePercent / 100 / image.PixelWidth, (PageHeight - 2 * margin - blank) / image.PixelHeight);
+            var scale = Math.Min(columnWidth * options.ScalePercent / 100 / image.PixelWidth, (PageHeight - 2 * margin - blank) / image.PixelHeight);
             var width = image.PixelWidth * scale; var height = image.PixelHeight * scale;
-            if (top - height - blank < margin && page.Count > 0)
+            if (top - height - blank < margin)
             {
-                if (pages.Count == 1 && page.Count == 1 && !string.IsNullOrWhiteSpace(options.Title))
+                if (columnItems > 0)
                 {
-                    var available = top - margin - blank; scale = Math.Min(scale, available / image.PixelHeight); width = image.PixelWidth * scale; height = image.PixelHeight * scale;
+                    column++;
+                    if (column >= options.Columns) { page = new(); pages.Add(page); column = 0; columnTop = PageHeight - margin; }
+                    top = columnTop; columnItems = 0;
                 }
-                else { page = new(); pages.Add(page); top = PageHeight - margin; }
+                // A very tall question stays intact; reserve the title area in both first-page columns.
+                if (top - height - blank < margin) { scale = Math.Min(scale, (top - margin - blank) / image.PixelHeight); width = image.PixelWidth * scale; height = image.PixelHeight * scale; }
             }
-            var x = margin + (widthAvailable - width) / 2;
-            page.Add(new Placement(image, x, top - height, width, height)); top -= height + blank + gap;
+            var x = margin + column * (columnWidth + 8 * PointsPerMm) + (columnWidth - width) / 2;
+            page.Add(new Placement(image, x, top - height, width, height)); top -= height + blank + gap; columnItems++;
         }
         return pages;
     }

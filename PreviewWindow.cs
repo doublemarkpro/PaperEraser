@@ -16,6 +16,7 @@ internal sealed class PreviewWindow : Window
     private readonly ComboBox gap = new() { Width = 70, Height = 32, ItemsSource = new[] { 0, 3, 5, 8, 10, 15, 20, 30 }, SelectedItem = 5 };
     private readonly ComboBox blank = new() { Width = 70, Height = 32, ItemsSource = new[] { 0, 5, 10, 15, 20, 30, 40, 50 }, SelectedItem = 0 };
     private readonly ComboBox margins = new() { Width = 70, Height = 32, ItemsSource = new[] { 8, 10, 13, 15, 20, 25 }, SelectedItem = 13 };
+    private readonly ComboBox columns = new() { Width = 100, Height = 32, ItemsSource = new[] { "一页单列", "一页两列" }, SelectedIndex = 0 };
     private readonly StackPanel preview = new() { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(16, 8, 16, 16) };
     private readonly TextBlock summary = UiFactory.Hint("");
     private bool ready;
@@ -32,12 +33,14 @@ internal sealed class PreviewWindow : Window
         var hint = UiFactory.Hint("可切换错题集逐题勾选，已选题目会保留；随机乱序仅影响本次组卷。预览与导出使用同一顺序；尺寸、间距和留白单位为毫米。"); hint.Margin = new Thickness(0, 5, 0, 12); header.Children.Add(hint);
         var controls = new WrapPanel();
         void Add(string label, Control control) { controls.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = UiFactory.Brush("#617694") }); control.Margin = new Thickness(0, 0, 12, 6); controls.Children.Add(control); }
-        Add("标题", title); Add("大小 %", scale); Add("间距", gap); Add("答题留白", blank); Add("页边距", margins);
+        Add("标题", title); Add("排版", columns); Add("列内大小 %", scale); Add("间距", gap); Add("答题留白", blank); Add("页边距", margins);
+        columns.ToolTip = "两列按左列从上到下，再到右列；列间距 8 毫米，大小百分比相对每列可用宽度。";
         header.Children.Add(controls); summary.Margin = new Thickness(0, 5, 0, 10); header.Children.Add(summary);
         DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
         root.Children.Add(new ScrollViewer { Content = preview, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Background = UiFactory.Brush("#ECF1F7") });
         Content = root; export.Click += Export_Click;
         title.TextChanged += (_, _) => UpdatePreview(); scale.SelectionChanged += (_, _) => UpdatePreview(); gap.SelectionChanged += (_, _) => UpdatePreview(); blank.SelectionChanged += (_, _) => UpdatePreview(); margins.SelectionChanged += (_, _) => UpdatePreview();
+        columns.SelectionChanged += (_, _) => UpdatePreview();
         ready = true; UpdatePreview();
     }
     internal PreviewWindow(IReadOnlyList<QuestionItem> questions, LibraryConfig library, IReadOnlyList<QuestionItem> initial)
@@ -74,16 +77,12 @@ internal sealed class PreviewWindow : Window
         var sections = new Grid(); sections.RowDefinitions.Add(new RowDefinition()); sections.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); sections.RowDefinitions.Add(new RowDefinition());
         sections.Children.Add(source);
         var orderHeader = new StackPanel { Margin = new Thickness(0, 12, 0, 6) }; Grid.SetRow(orderHeader, 1); sections.Children.Add(orderHeader);
-        orderHeader.Children.Add(new TextBlock { Text = "已选题目 · 按下方顺序组卷", FontWeight = FontWeights.SemiBold });
+        orderHeader.Children.Add(new TextBlock { Text = "已选题目 · 拖动排序，× 移出本次试卷", FontWeight = FontWeights.SemiBold });
         var orderActions = new WrapPanel { Margin = new Thickness(0, 7, 0, 4) }; orderHeader.Children.Add(orderActions);
         var shuffle = new Button { Content = "随机乱序", Padding = new Thickness(8, 5, 8, 5) };
         var restore = new Button { Content = "恢复原序", Padding = new Thickness(8, 5, 8, 5) };
         orderActions.Children.Add(shuffle); orderActions.Children.Add(restore);
-        var ordered = new ListBox { ItemsSource = selection.Selected, ItemTemplate = UiFactory.TextTemplate(nameof(PaperQuestion.Name)), ItemContainerStyle = (Style)FindResource("CollectionItem"), BorderBrush = UiFactory.Brush("#DAE3EF") }; Grid.SetRow(ordered, 2); sections.Children.Add(ordered);
-        var moveActions = new WrapPanel(); orderHeader.Children.Add(moveActions);
-        void Move(int delta) { if (ordered.SelectedItem is not PaperQuestion item) return; int index = selection.Selected.IndexOf(item); int target = index + delta; if (target < 0 || target >= selection.Selected.Count) return; selection.Selected.Move(index, target); ordered.SelectedItem = item; ordered.ScrollIntoView(item); }
-        var up = new Button { Content = "上移", Padding = new Thickness(8, 4, 8, 4) }; var down = new Button { Content = "下移", Padding = new Thickness(8, 4, 8, 4) }; var remove = new Button { Content = "移出组卷", Padding = new Thickness(8, 4, 8, 4) }; moveActions.Children.Add(up); moveActions.Children.Add(down); moveActions.Children.Add(remove);
-        up.Click += (_, _) => Move(-1); down.Click += (_, _) => Move(1); remove.Click += (_, _) => { if (ordered.SelectedItem is PaperQuestion item) item.Included = false; };
+        var ordered = new PaperOrderList(selection); Grid.SetRow(ordered, 2); sections.Children.Add(ordered);
         shuffle.Click += (_, _) => { updatingSelection = true; try { selection.Shuffle(); } finally { updatingSelection = false; } RefreshSelection(); };
         restore.Click += (_, _) => { updatingSelection = true; try { selection.RestoreOrder(); } finally { updatingSelection = false; } RefreshSelection(); };
         selection.Selected.CollectionChanged += (_, _) => { if (!updatingSelection) RefreshSelection(); };
@@ -95,7 +94,7 @@ internal sealed class PreviewWindow : Window
         if (selection is null) return;
         images = selection.Selected.Select(q => q.Image).ToArray(); UpdatePreview();
     }
-    private PdfExporter.LayoutOptions Options() => new(title.Text.Trim(), (int)(margins.SelectedItem ?? 13), (int)(gap.SelectedItem ?? 5), (int)(blank.SelectedItem ?? 0), (int)(scale.SelectedItem ?? 100));
+    private PdfExporter.LayoutOptions Options() => new(title.Text.Trim(), (int)(margins.SelectedItem ?? 13), (int)(gap.SelectedItem ?? 5), (int)(blank.SelectedItem ?? 0), (int)(scale.SelectedItem ?? 100), columns.SelectedIndex == 1 ? 2 : 1);
     private void UpdatePreview()
     {
         if (!ready) return;
@@ -114,7 +113,7 @@ internal sealed class PreviewWindow : Window
                 }
                 preview.Children.Add(canvas);
             }
-            summary.Text = $"{images.Count} 道题 · {layout.Count} 页 · A4 单列";
+            summary.Text = $"{images.Count} 道题 · {layout.Count} 页 · A4 {(columns.SelectedIndex == 1 ? "双列（先左后右）" : "单列")}";
         }
         catch (Exception ex) { summary.Text = "无法预览：" + ex.Message; }
     }

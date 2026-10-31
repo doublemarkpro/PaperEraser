@@ -47,4 +47,11 @@ internal sealed class PaperSelection
         var original = Selected.OrderBy(q => q.Index).ToArray();
         for (int i = 0; i < original.Length; i++) Selected.Move(Selected.IndexOf(original[i]), i);
     }
+    internal void MoveToGap(PaperQuestion item, int gap)
+    {
+        int from = Selected.IndexOf(item);
+        if (from < 0 || gap < 0 || gap > Selected.Count) return;
+        int destination = gap - (from < gap ? 1 : 0);
+        if (destination != from) Selected.Move(from, destination);
+    }
 }
