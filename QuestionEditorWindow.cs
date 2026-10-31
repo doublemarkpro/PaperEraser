@@ -29,8 +29,18 @@ internal sealed class QuestionEditorWindow : Window
         enlarge.Click += (_, _) => OpenImagePreview(); DockPanel.SetDock(enlarge, Dock.Right); previewHeader.Children.Add(enlarge);
         previewHeader.Children.Add(new TextBlock { Text = "题目图片（点击可放大）", Foreground = UiFactory.Brush("#506583"), VerticalAlignment = VerticalAlignment.Center }); form.Children.Add(previewHeader);
         var preview = new Border { Background = UiFactory.Brush("#F3F6FA"), CornerRadius = new CornerRadius(8), Height = 150, Padding = new Thickness(10), Margin = new Thickness(0, 0, 0, 8), Child = new Image { Source = item.Image, Stretch = Stretch.Uniform }, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "打开可缩放的题目预览，可与编辑窗口同时使用" };
-        preview.MouseLeftButtonUp += (_, e) => { OpenImagePreview(); e.Handled = true; };
-        form.Children.Add(preview);
+        // Use Button's complete press/release gesture. A raw MouseUp handler can
+        // receive the trailing release of the double-click that opened this editor.
+        var imageButton = new Button
+        {
+            Content = preview, Padding = new Thickness(0), Margin = new Thickness(0), BorderThickness = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Template = new ControlTemplate(typeof(Button)) { VisualTree = new FrameworkElementFactory(typeof(ContentPresenter)) },
+            ToolTip = "点击放大预览题目"
+        };
+        System.Windows.Automation.AutomationProperties.SetName(imageButton, "放大题目预览");
+        imageButton.Click += (_, _) => OpenImagePreview();
+        form.Children.Add(imageButton);
         void Add(string label, Control control) { form.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 9, 0, 5), Foreground = UiFactory.Brush("#506583") }); control.Padding = new Thickness(8, 6, 8, 6); form.Children.Add(control); }
         title.Text = item.CardTitle; subject.Text = item.Subject; topic.Text = item.Topic; notes.Text = item.Notes; notes.AcceptsReturn = true; notes.TextWrapping = TextWrapping.Wrap; notes.Height = 70;
         review.Items.Add("待复习"); review.Items.Add("复习中"); review.Items.Add("已掌握"); review.SelectedItem = item.ReviewStatus; if (review.SelectedIndex < 0) review.SelectedIndex = 0;
