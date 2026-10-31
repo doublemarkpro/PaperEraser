@@ -19,6 +19,22 @@ internal static class Program
             new QuestionItem("未分类题", image, Collection: "默认错题集")
         };
         var migrated = LibraryCatalog.Normalize(legacy, questions);
+        var selection = new PaperSelection(questions, legacy, new[] { questions[0], questions[2] });
+        Check(selection.Selected.Select(q => q.Index).SequenceEqual(new[] { 0, 2 }), "initial assembly matches current filter");
+        selection.Questions[1].Included = true;
+        Check(selection.Selected.Select(q => q.Index).SequenceEqual(new[] { 0, 2, 1 }), "cross-collection picks append without clearing earlier selection");
+        var beforeShuffle = selection.Selected.ToArray(); selection.Shuffle(new Random(42));
+        Check(selection.Selected.Count == 3 && selection.Selected.Distinct().Count() == 3 && !selection.Selected.SequenceEqual(beforeShuffle), "shuffle preserves every selected question and changes order");
+        selection.Questions[1].Included = false;
+        Check(selection.Selected.All(q => q.Index != 1) && !selection.Questions[1].Included, "removing a selected question also unchecks its source");
+        selection.RestoreOrder();
+        Check(selection.Selected.Select(q => q.Index).SequenceEqual(new[] { 0, 2 }) && questions[0].Label == "语文题", "restore order affects assembly only");
+        foreach (var q in selection.Questions) q.Included = false;
+        selection.Shuffle(); selection.RestoreOrder();
+        Check(selection.Selected.Count == 0, "empty assembly can be shuffled or restored safely");
+        var equalCopy = questions[0] with { };
+        var duplicates = new PaperSelection(new[] { questions[0], equalCopy }, legacy, new[] { equalCopy });
+        Check(duplicates.Selected.Count == 1 && duplicates.Selected[0].Index == 1, "equal-looking questions remain independently selectable");
         Check(migrated.Config.Version == 3 && migrated.Config.Collections.Count == 5, "mixed legacy collection is split by subject");
         Check(migrated.Questions.Length == 3 && migrated.Questions.Select(q => q.Label).SequenceEqual(questions.Select(q => q.Label)) && migrated.Questions.All(q => ReferenceEquals(q.Image, image)), "migration preserves images, order and question count");
         Check(migrated.Questions.Select(q => q.Collection).Distinct().Count() == 3 && migrated.Questions.All(q => LibraryCatalog.Entry(migrated.Config, q.Collection).Subject == q.Subject), "every migrated question matches its parent subject");

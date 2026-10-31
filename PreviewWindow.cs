@@ -7,7 +7,10 @@ using System.Windows.Media.Imaging;
 namespace PaperEraser;
 internal sealed class PreviewWindow : Window
 {
-    private readonly IReadOnlyList<BitmapSource> images;
+    private IReadOnlyList<BitmapSource> images;
+    private PaperSelection? selection;
+    private bool updatingSelection;
+    private readonly Button exportButton;
     private readonly TextBox title = new() { Text = "错题练习", MaxLength = 50, Width = 210, Height = 32 };
     private readonly ComboBox scale = new() { Width = 78, Height = 32, ItemsSource = new[] { 40, 50, 60, 70, 80, 90, 100 }, SelectedItem = 100 };
     private readonly ComboBox gap = new() { Width = 70, Height = 32, ItemsSource = new[] { 0, 3, 5, 8, 10, 15, 20, 30 }, SelectedItem = 5 };
@@ -24,8 +27,9 @@ internal sealed class PreviewWindow : Window
         var header = new StackPanel();
         var heading = new DockPanel();
         var export = new Button { Content = "导出 PDF", Padding = new Thickness(16, 8, 16, 8) }; UiFactory.Primary(export); DockPanel.SetDock(export, Dock.Right); heading.Children.Add(export);
+        exportButton = export;
         heading.Children.Add(new TextBlock { Text = "预览与导出", FontSize = 23, FontWeight = FontWeights.SemiBold }); header.Children.Add(heading);
-        var hint = UiFactory.Hint("调整排版后，预览与导出使用相同设置；尺寸、间距和留白单位为毫米。"); hint.Margin = new Thickness(0, 5, 0, 12); header.Children.Add(hint);
+        var hint = UiFactory.Hint("可切换错题集逐题勾选，已选题目会保留；随机乱序仅影响本次组卷。预览与导出使用同一顺序；尺寸、间距和留白单位为毫米。"); hint.Margin = new Thickness(0, 5, 0, 12); header.Children.Add(hint);
         var controls = new WrapPanel();
         void Add(string label, Control control) { controls.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center, Foreground = UiFactory.Brush("#617694") }); control.Margin = new Thickness(0, 0, 12, 6); controls.Children.Add(control); }
         Add("标题", title); Add("大小 %", scale); Add("间距", gap); Add("答题留白", blank); Add("页边距", margins);
@@ -36,10 +40,67 @@ internal sealed class PreviewWindow : Window
         title.TextChanged += (_, _) => UpdatePreview(); scale.SelectionChanged += (_, _) => UpdatePreview(); gap.SelectionChanged += (_, _) => UpdatePreview(); blank.SelectionChanged += (_, _) => UpdatePreview(); margins.SelectionChanged += (_, _) => UpdatePreview();
         ready = true; UpdatePreview();
     }
+    internal PreviewWindow(IReadOnlyList<QuestionItem> questions, LibraryConfig library, IReadOnlyList<QuestionItem> initial)
+        : this(initial.Select(q => q.Image).ToArray())
+    {
+        Width = 1280; MinWidth = 960;
+        selection = new PaperSelection(questions, library, initial);
+        var root = (DockPanel)Content;
+        var viewer = root.Children[root.Children.Count - 1]; root.Children.Remove(viewer);
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var panel = new DockPanel { Margin = new Thickness(0, 0, 14, 0) };
+        var heading = new StackPanel(); DockPanel.SetDock(heading, Dock.Top); panel.Children.Add(heading);
+        heading.Children.Add(new TextBlock { Text = "跨错题集选题", FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
+        var filter = new ComboBox { ItemsSource = new[] { new CollectionEntry(LibraryCatalog.AllCollections, "全部错题集", "") }.Concat(LibraryCatalog.Entries(library)).ToArray(), ItemTemplate = UiFactory.TextTemplate(nameof(CollectionEntry.Display)), SelectedIndex = 0, Margin = new Thickness(0, 0, 0, 8) };
+        heading.Children.Add(filter);
+        var view = new System.Windows.Data.ListCollectionView(selection.Questions.ToArray());
+        view.Filter = value => filter.SelectedItem is not CollectionEntry scope || scope.Id == LibraryCatalog.AllCollections || ((PaperQuestion)value).Question.Collection == scope.Id;
+        filter.SelectionChanged += (_, _) => view.Refresh();
+        var actions = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; heading.Children.Add(actions);
+        var select = new Button { Content = "勾选本集", Padding = new Thickness(8, 5, 8, 5) };
+        var clear = new Button { Content = "取消本集", Padding = new Thickness(8, 5, 8, 5) };
+        actions.Children.Add(select); actions.Children.Add(clear);
+        void SetVisible(bool included) { updatingSelection = true; try { foreach (PaperQuestion item in view) item.Included = included; } finally { updatingSelection = false; } RefreshSelection(); }
+        select.Click += (_, _) => SetVisible(true); clear.Click += (_, _) => SetVisible(false);
+        var source = new ListBox { ItemsSource = view, BorderThickness = new Thickness(0), Background = Brushes.Transparent, ItemContainerStyle = (Style)FindResource("CollectionItem") };
+        var check = new FrameworkElementFactory(typeof(CheckBox)); check.SetBinding(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, new System.Windows.Data.Binding(nameof(PaperQuestion.Included)) { Mode = System.Windows.Data.BindingMode.TwoWay });
+        check.SetValue(FrameworkElement.MarginProperty, new Thickness(2, 5, 2, 5)); check.SetValue(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch);
+        var row = new FrameworkElementFactory(typeof(StackPanel)); row.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        var thumbnail = new FrameworkElementFactory(typeof(Image)); thumbnail.SetBinding(Image.SourceProperty, new System.Windows.Data.Binding(nameof(PaperQuestion.Image))); thumbnail.SetValue(FrameworkElement.WidthProperty, 55d); thumbnail.SetValue(FrameworkElement.HeightProperty, 55d); thumbnail.SetValue(FrameworkElement.MarginProperty, new Thickness(5, 0, 8, 0)); row.AppendChild(thumbnail);
+        var label = new FrameworkElementFactory(typeof(TextBlock)); label.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(PaperQuestion.Name))); label.SetBinding(FrameworkElement.ToolTipProperty, new System.Windows.Data.Binding(nameof(PaperQuestion.Collection))); label.SetValue(FrameworkElement.MaxWidthProperty, 185d); label.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap); label.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center); row.AppendChild(label); check.AppendChild(row);
+        source.ItemTemplate = new DataTemplate { VisualTree = check };
+        var sections = new Grid(); sections.RowDefinitions.Add(new RowDefinition()); sections.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); sections.RowDefinitions.Add(new RowDefinition());
+        sections.Children.Add(source);
+        var orderHeader = new StackPanel { Margin = new Thickness(0, 12, 0, 6) }; Grid.SetRow(orderHeader, 1); sections.Children.Add(orderHeader);
+        orderHeader.Children.Add(new TextBlock { Text = "已选题目 · 按下方顺序组卷", FontWeight = FontWeights.SemiBold });
+        var orderActions = new WrapPanel { Margin = new Thickness(0, 7, 0, 4) }; orderHeader.Children.Add(orderActions);
+        var shuffle = new Button { Content = "随机乱序", Padding = new Thickness(8, 5, 8, 5) };
+        var restore = new Button { Content = "恢复原序", Padding = new Thickness(8, 5, 8, 5) };
+        orderActions.Children.Add(shuffle); orderActions.Children.Add(restore);
+        var ordered = new ListBox { ItemsSource = selection.Selected, ItemTemplate = UiFactory.TextTemplate(nameof(PaperQuestion.Name)), ItemContainerStyle = (Style)FindResource("CollectionItem"), BorderBrush = UiFactory.Brush("#DAE3EF") }; Grid.SetRow(ordered, 2); sections.Children.Add(ordered);
+        var moveActions = new WrapPanel(); orderHeader.Children.Add(moveActions);
+        void Move(int delta) { if (ordered.SelectedItem is not PaperQuestion item) return; int index = selection.Selected.IndexOf(item); int target = index + delta; if (target < 0 || target >= selection.Selected.Count) return; selection.Selected.Move(index, target); ordered.SelectedItem = item; ordered.ScrollIntoView(item); }
+        var up = new Button { Content = "上移", Padding = new Thickness(8, 4, 8, 4) }; var down = new Button { Content = "下移", Padding = new Thickness(8, 4, 8, 4) }; var remove = new Button { Content = "移出组卷", Padding = new Thickness(8, 4, 8, 4) }; moveActions.Children.Add(up); moveActions.Children.Add(down); moveActions.Children.Add(remove);
+        up.Click += (_, _) => Move(-1); down.Click += (_, _) => Move(1); remove.Click += (_, _) => { if (ordered.SelectedItem is PaperQuestion item) item.Included = false; };
+        shuffle.Click += (_, _) => { updatingSelection = true; try { selection.Shuffle(); } finally { updatingSelection = false; } RefreshSelection(); };
+        restore.Click += (_, _) => { updatingSelection = true; try { selection.RestoreOrder(); } finally { updatingSelection = false; } RefreshSelection(); };
+        selection.Selected.CollectionChanged += (_, _) => { if (!updatingSelection) RefreshSelection(); };
+        panel.Children.Add(sections); grid.Children.Add(panel); Grid.SetColumn(viewer, 1); grid.Children.Add(viewer); root.Children.Add(grid);
+        RefreshSelection();
+    }
+    private void RefreshSelection()
+    {
+        if (selection is null) return;
+        images = selection.Selected.Select(q => q.Image).ToArray(); UpdatePreview();
+    }
     private PdfExporter.LayoutOptions Options() => new(title.Text.Trim(), (int)(margins.SelectedItem ?? 13), (int)(gap.SelectedItem ?? 5), (int)(blank.SelectedItem ?? 0), (int)(scale.SelectedItem ?? 100));
     private void UpdatePreview()
     {
         if (!ready) return;
+        exportButton.IsEnabled = images.Count > 0;
+        if (images.Count == 0) { preview.Children.Clear(); summary.Text = "尚未选题：可切换错题集勾选题目，选择会保留。"; return; }
         try
         {
             var layout = PdfExporter.Layout(images, Options()); preview.Children.Clear();

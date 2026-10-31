@@ -16,4 +16,28 @@
  <Style x:Key="QuestionCard" TargetType="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,10,10"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="card" BorderBrush="#E4EAF4" BorderThickness="1" CornerRadius="9" Background="White"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="card" Property="BorderBrush" Value="#96B9F6"/></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="card" Property="BorderBrush" Value="#4385EE"/><Setter TargetName="card" Property="Background" Value="#EFF6FF"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
  <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="White"/><Setter Property="BorderBrush" Value="#E9EEF5"/><Setter Property="BorderThickness" Value="1"/><Setter Property="CornerRadius" Value="10"/><Setter Property="Padding" Value="16"/></Style>
 
+ <Style x:Key="CollectionTreeItem" TargetType="TreeViewItem">
+  <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
+  <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}"/>
+  <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+  <Setter Property="Foreground" Value="#21395F"/>
+  <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TreeViewItem">
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <ToggleButton x:Name="Expander" Width="18" Height="34" Focusable="False" IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+     <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border Background="Transparent"><Path x:Name="Arrow" Data="M 0 0 L 4 4 L 0 8" Stroke="#7185A2" StrokeThickness="1.6" HorizontalAlignment="Center" VerticalAlignment="Center" RenderTransformOrigin="0.5,0.5"/></Border><ControlTemplate.Triggers><Trigger Property="IsChecked" Value="True"><Setter TargetName="Arrow" Property="RenderTransform"><Setter.Value><RotateTransform Angle="90"/></Setter.Value></Setter></Trigger></ControlTemplate.Triggers></ControlTemplate></ToggleButton.Template>
+    </ToggleButton>
+    <Border x:Name="HeaderRow" Grid.Column="1" CornerRadius="7" Padding="7,7" Margin="0,2" Background="Transparent" BorderThickness="1" BorderBrush="Transparent">
+     <ContentPresenter x:Name="PART_Header" ContentSource="Header" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+    </Border>
+    <ItemsPresenter x:Name="ItemsHost" Grid.Row="1" Grid.Column="1" Margin="3,0,0,0"/>
+   </Grid>
+   <ControlTemplate.Triggers>
+    <Trigger Property="IsExpanded" Value="False"><Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed"/></Trigger>
+    <Trigger Property="HasItems" Value="False"><Setter TargetName="Expander" Property="Visibility" Value="Hidden"/></Trigger>
+    <Trigger SourceName="HeaderRow" Property="IsMouseOver" Value="True"><Setter TargetName="HeaderRow" Property="Background" Value="#EDF4FF"/></Trigger>
+    <Trigger Property="IsSelected" Value="True"><Setter TargetName="HeaderRow" Property="Background" Value="#DFECFF"/><Setter TargetName="HeaderRow" Property="BorderBrush" Value="#C9DEFF"/><Setter Property="Foreground" Value="#175BCC"/></Trigger>
+   </ControlTemplate.Triggers>
+  </ControlTemplate></Setter.Value></Setter>
+ </Style>
 </ResourceDictionary>

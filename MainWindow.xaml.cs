@@ -1090,9 +1090,8 @@ public partial class MainWindow : Window
     private void PreviewQuestions_Click(object sender, RoutedEventArgs e)
     {
         var visible = FilteredQuestions();
-        if (visible.Length == 0) { MessageBox.Show("当前筛选条件下没有错题。", "没有可预览的题目"); return; }
-        var images = visible.Select(q => q.Image).ToArray();
-        var preview = new PreviewWindow(images) { Owner = this };
+        if (questions.Count == 0) { MessageBox.Show("请先加入错题。", "没有可预览的题目"); return; }
+        var preview = new PreviewWindow(questions.ToArray(), library, visible) { Owner = this };
         if (preview.ShowDialog() == true && preview.ExportedPath is not null) Status.Text = "PDF 已保存：" + preview.ExportedPath;
     }
     private void ExportQuestions_Click(object sender, RoutedEventArgs e)
