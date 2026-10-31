@@ -19,7 +19,7 @@ internal static class Program
             new QuestionItem("未分类题", image, Collection: "默认错题集")
         };
         var migrated = LibraryCatalog.Normalize(legacy, questions);
-        Check(migrated.Config.Version == 2 && migrated.Config.Collections.Count == 5, "mixed legacy collection is split by subject");
+        Check(migrated.Config.Version == 3 && migrated.Config.Collections.Count == 5, "mixed legacy collection is split by subject");
         Check(migrated.Questions.Length == 3 && migrated.Questions.Select(q => q.Label).SequenceEqual(questions.Select(q => q.Label)) && migrated.Questions.All(q => ReferenceEquals(q.Image, image)), "migration preserves images, order and question count");
         Check(migrated.Questions.Select(q => q.Collection).Distinct().Count() == 3 && migrated.Questions.All(q => LibraryCatalog.Entry(migrated.Config, q.Collection).Subject == q.Subject), "every migrated question matches its parent subject");
         Check(LibraryCatalog.Entry(migrated.Config, "语文-同步第一单元").Subject == "语文" && LibraryCatalog.Entry(migrated.Config, "空集").Subject == "", "empty collections use conservative prefix inference");
@@ -31,6 +31,17 @@ internal static class Program
         catalog.CollectionDefinitions["math-unit"] = new("同步第一单元", "数学");
         LibraryCatalog.Validate(catalog);
         Check(!LibraryCatalog.NameAvailable(catalog, "同步第一单元", "语文") && LibraryCatalog.NameAvailable(catalog, "同步第一单元", "英语"), "same names are allowed across subjects but not within one subject");
+        Check(catalog.Grades.Count == 12 && catalog.Grades.Contains("三年级") && catalog.Grades.Contains("高三"), "school grades are available without manual setup");
+        catalog.Collections.AddRange(new[] { "grade-three", "grade-four" });
+        catalog.CollectionDefinitions["grade-three"] = new("同步第一单元", "语文", "三年级");
+        catalog.CollectionDefinitions["grade-four"] = new("同步第一单元", "语文", "四年级"); LibraryCatalog.Validate(catalog);
+        Check(!LibraryCatalog.NameAvailable(catalog, "同步第一单元", "语文", grade: "三年级") && LibraryCatalog.NameAvailable(catalog, "同步第一单元", "语文", grade: "五年级"), "same unit names are isolated by grade and subject");
+        Check(LibraryCatalog.Entry(catalog, "grade-three").Display == "三年级 / 语文 / 同步第一单元", "collection display includes full grade hierarchy");
+        var legacyV2 = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(migrated.Config))!;
+        legacyV2["Version"] = 2; legacyV2.AsObject().Remove("Grades");
+        foreach (var entry in legacyV2["CollectionDefinitions"]!.AsObject()) entry.Value!.AsObject().Remove("Grade");
+        var upgraded = LibraryCatalog.Normalize(JsonSerializer.Deserialize<LibraryConfig>(legacyV2.ToJsonString())!, migrated.Questions);
+        Check(upgraded.Config.Version == 3 && upgraded.Questions.SequenceEqual(migrated.Questions) && upgraded.Config.CollectionDefinitions.Values.All(c => c.Grade == ""), "v2 subject catalogs upgrade with identities preserved and grade unset");
         var folder = Path.Combine(Path.GetTempPath(), "PaperEraserLibraryChecks-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder); BasketStore.TestDataDirectory = folder;
         try
@@ -40,7 +51,7 @@ internal static class Program
             Check(File.Exists(Path.Combine(recovery, "basket.json")) && File.Exists(Path.Combine(recovery, "library.json")), "migration transaction keeps original data backup");
             var archive = Path.Combine(folder, "test.zip"); BackupService.Create(archive, BasketStore.Load(BasketStore.DefaultPath), LibraryStore.Load());
             var roundtrip = BackupService.Read(archive);
-            Check(roundtrip.Questions.Count == 3 && roundtrip.Library.CollectionDefinitions["math-unit"].Subject == "数学", "backup retains subject ownership and questions");
+            Check(roundtrip.Questions.Count == 3 && roundtrip.Library.CollectionDefinitions["math-unit"].Subject == "数学" && roundtrip.Library.CollectionDefinitions["grade-three"].Grade == "三年级", "backup retains grade ownership and questions");
             var basketBefore = File.ReadAllBytes(BasketStore.DefaultPath); var configBefore = File.ReadAllBytes(LibraryStore.PathName);
             var invalid = catalog.Copy(); invalid.CollectionDefinitions["math-unit"] = new("同步第一单元", "不存在的学科");
             bool rejected = false;
