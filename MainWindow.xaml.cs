@@ -645,7 +645,7 @@ public partial class MainWindow : Window
         selecting = false; SelectionCanvas.ReleaseMouseCapture(); SelectionRect.Visibility = Visibility.Collapsed;
         if (right - left < 2 || bottom - top < 2) return;
         currentPage.Regions.Add(new Int32Rect(left, top, right - left, bottom - top)); currentPage.RegionsChanged(); RefreshRegions();
-        Status.Text = $"当前页已框选 {currentPage.Regions.Count} 个区域；可继续框选或加入错题集。";
+        Status.Text = $"当前页已框选 {currentPage.Regions.Count} 个区域；跨页题目可切换页面继续框选，再点击“跨页选区拼题”。";
     }
     private void Selection_LostCapture(object sender, MouseEventArgs e) { if (selecting) ResetSelection(); }
     private void UpdateSelection(Point end)
@@ -665,6 +665,7 @@ public partial class MainWindow : Window
         }
         var any = !isBusy && selection is not null; SaveCropButton.IsEnabled = any; AddCropButton.IsEnabled = any; UndoRegionButton.IsEnabled = any; ClearRegionButton.IsEnabled = any;
         AddAllRegionsButton.IsEnabled = !isBusy && pages.Any(p => p.Processed is not null && p.Regions.Count > 0);
+        StitchRegionsButton.IsEnabled = !isBusy;
     }
     private void UndoRegion_Click(object sender, RoutedEventArgs e)
     {
@@ -706,6 +707,30 @@ public partial class MainWindow : Window
         if (currentPage is not null) AddSelectedRegions(new[] { currentPage });
     }
     private void AddAllRegions_Click(object sender, RoutedEventArgs e) => AddSelectedRegions(pages.ToArray());
+    private void StitchRegions_Click(object sender, RoutedEventArgs e)
+    {
+        if (isBusy) return;
+        var fragments = pages.Where(p => p.Processed is not null)
+            .SelectMany(page => Enumerable.Range(0, page.Regions.Count).Select(index => QuestionFragment.Capture(page, index))).ToArray();
+        if (fragments.Length < 2)
+        {
+            MessageBox.Show(this, "请先在处理结果中框选题目上半部分，再切换到另一张图片框选下半部分，然后点击“跨页选区拼题”。\n\n至少需要两个选区，也支持同一页上的多个片段。", "跨页拼题", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var target = TargetCollection.SelectedItem as string ?? library.Collections.FirstOrDefault() ?? "默认错题集";
+        var subject = TargetSubject.SelectedItem as string ?? ""; if (subject == "未分类") subject = "";
+        var dialog = new QuestionStitchWindow(fragments, target, subject) { Owner = this };
+        if (dialog.ShowDialog() != true || dialog.CombinedImage is null) return;
+        if (!QuestionFragment.AreCurrent(dialog.SelectedFragments))
+        {
+            MessageBox.Show(this, "原页面或选区已发生变化，请重新打开拼题窗口。", "无法加入错题集", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        var item = new QuestionItem(dialog.QuestionName, dialog.CombinedImage, Subject: subject, Collection: target);
+        if (!CommitQuestions(questions.Append(item).ToArray())) return;
+        QuestionFragment.Consume(dialog.SelectedFragments); RefreshRegions();
+        Status.Text = $"已将 {dialog.SelectedFragments.Count} 个片段拼成一道题加入“{target}”；其他选区仍保留。";
+    }
     private void AddSelectedRegions(IEnumerable<Worksheet> sourcePages)
     {
         var target = TargetCollection.SelectedItem as string ?? library.Collections.FirstOrDefault() ?? "默认错题集";
