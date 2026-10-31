@@ -19,6 +19,7 @@ internal sealed record CollectionEntry(string Id, string Name, string Subject, s
     public string GroupName => Id == LibraryCatalog.AllCollections ? "总览" : $"{GradeName} / {SubjectName}";
     public string ColorKey => string.IsNullOrWhiteSpace(Subject) ? Name : Subject;
     public string Display => Id == LibraryCatalog.AllCollections ? Name : $"{GroupName} / {Name}";
+    public override string ToString() => Display;
 }
 internal static class LibraryCatalog
 {

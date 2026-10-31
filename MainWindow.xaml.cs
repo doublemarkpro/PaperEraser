@@ -54,6 +54,8 @@ public partial class MainWindow : Window
     private string selectedSubject = "全部学科";
     private string selectedGrade = "全部年级";
     private bool refreshingLibrary;
+    private CollectionTreeNode? selectedLibraryNode;
+    private CollectionTreeNode? libraryTree;
     public MainWindow()
     {
         InitializeComponent();
@@ -200,10 +202,15 @@ public partial class MainWindow : Window
             if (!library.Grades.Contains(selectedGrade) && selectedGrade is not "全部年级" and not "未设置年级") selectedGrade = "全部年级";
             var entries = LibraryCatalog.Entries(library).Where(c => (selectedSubject == "全部学科" || c.Subject == LibraryCatalog.SubjectKey(selectedSubject)) && (selectedGrade == "全部年级" || c.Grade == LibraryCatalog.GradeKey(selectedGrade))).ToArray();
             if (!entries.Any(c => c.Id == selectedCollection)) selectedCollection = "全部错题";
-            var all = new CollectionEntry("全部错题", ScopeTitle(), "");
-            var view = new ListCollectionView(new[] { all }.Concat(entries).ToArray());
-            if (selectedSubject == "全部学科" || selectedGrade == "全部年级") view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(CollectionEntry.GroupName)));
-            CollectionList.ItemsSource = view; CollectionList.SelectedValue = selectedCollection;
+            var expanded = libraryTree?.Descendants().ToDictionary(n => n.Key, n => n.IsExpanded);
+            var previousKey = selectedLibraryNode?.Key;
+            libraryTree = LibraryTree.Build(library, selectedGrade == "全部年级" ? null : LibraryCatalog.GradeKey(selectedGrade), selectedSubject == "全部学科" ? null : LibraryCatalog.SubjectKey(selectedSubject), ScopeTitle());
+            foreach (var node in libraryTree.Descendants()) if (expanded?.TryGetValue(node.Key, out var open) == true) node.IsExpanded = open;
+            selectedLibraryNode = libraryTree.Descendants().FirstOrDefault(n => selectedCollection != "全部错题" ? n.Id == selectedCollection : n.Id is null && n.Key == previousKey) ?? libraryTree;
+            // Reveal a programmatically selected collection after creating or moving it.
+            bool Reveal(CollectionTreeNode node) { bool contains = node == selectedLibraryNode || node.Children.Any(Reveal); if (contains && node != selectedLibraryNode) node.IsExpanded = true; return contains; }
+            Reveal(libraryTree);
+            CollectionList.ItemsSource = new[] { libraryTree }; selectedLibraryNode.IsSelected = true;
             GradeFilter.ItemsSource = new[] { "全部年级", "未设置年级" }.Concat(library.Grades).ToArray(); GradeFilter.SelectedItem = selectedGrade;
             SubjectFilter.ItemsSource = new[] { "全部学科", "未分类" }.Concat(library.Subjects).ToArray(); SubjectFilter.SelectedItem = selectedSubject;
             var gradeTarget = TargetGrade.SelectedItem as string;
@@ -217,14 +224,14 @@ public partial class MainWindow : Window
         }
         finally { refreshingLibrary = false; }
     }
-    private void CollectionChanged(object sender, SelectionChangedEventArgs e)
+    private void CollectionChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (refreshingLibrary || CollectionList?.SelectedItem is not CollectionEntry value) return;
-        selectedCollection = value.Id; UpdateCollectionTitle();
-        if (value.Id != "全部错题" && TargetCollection is not null)
+        if (refreshingLibrary || e.NewValue is not CollectionTreeNode value) return;
+        selectedLibraryNode = value; selectedCollection = value.Id ?? "全部错题"; UpdateCollectionTitle();
+        if (TargetCollection is not null)
         {
-            TargetGrade.SelectedItem = string.IsNullOrWhiteSpace(value.Grade) ? "未设置年级" : value.Grade;
-            TargetSubject.SelectedItem = string.IsNullOrWhiteSpace(value.Subject) ? "未分类" : value.Subject;
+            if (value.Grade is not null) TargetGrade.SelectedItem = value.Grade.Length == 0 ? "未设置年级" : value.Grade;
+            if (value.Subject is not null) TargetSubject.SelectedItem = value.Subject.Length == 0 ? "未分类" : value.Subject;
             RefreshTargetCollections(value.Id);
         }
         questionView?.Refresh();
@@ -232,7 +239,7 @@ public partial class MainWindow : Window
     private void UpdateCollectionTitle()
     {
         CollectionTitle.Text = selectedCollection == "全部错题"
-            ? ScopeTitle()
+            ? selectedLibraryNode?.Display ?? ScopeTitle()
             : LibraryCatalog.Entry(library, selectedCollection).Display;
         CollectionScopeTitle.Text = selectedGrade == "全部年级" ? "年级 / 学科 / 错题集" : selectedGrade + "错题集";
     }
@@ -290,11 +297,20 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { MessageBox.Show(this, "无法保存学科和错题集，原数据已保留：\n" + ex.Message, "保存失败", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
     }
-    private ListBoxItem? CollectionContainer(DependencyObject? source) => source is null ? null : ItemsControl.ContainerFromElement(CollectionList, source) as ListBoxItem;
+    private TreeViewItem? CollectionContainer(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (source is System.Windows.Controls.Primitives.ToggleButton) return null;
+            if (source is TreeViewItem item) return item;
+            source = source is System.Windows.Media.Visual ? System.Windows.Media.VisualTreeHelper.GetParent(source) : LogicalTreeHelper.GetParent(source);
+        }
+        return null;
+    }
     private void CollectionList_MouseDown(object sender, MouseButtonEventArgs e)
     {
         collectionDragStart = e.GetPosition(CollectionList);
-        collectionDragCandidate = (CollectionContainer(e.OriginalSource as DependencyObject)?.DataContext as CollectionEntry)?.Id;
+        collectionDragCandidate = (CollectionContainer(e.OriginalSource as DependencyObject)?.DataContext as CollectionTreeNode)?.Id;
         if (collectionDragCandidate == "全部错题") collectionDragCandidate = null;
     }
     private void CollectionList_MouseMove(object sender, MouseEventArgs e)
@@ -308,7 +324,7 @@ public partial class MainWindow : Window
             collectionDragInProgress = true;
         }
         var target = CollectionAtPoint(point);
-        var targetName = (target?.DataContext as CollectionEntry)?.Id;
+        var targetName = (target?.DataContext as CollectionTreeNode)?.Id;
         if (target is null || targetName is null || targetName == collectionDragCandidate || (targetName != "全部错题" && !SameCollectionGroup(targetName, collectionDragCandidate!)))
         { ClearCollectionDropMarker(); return; }
         bool before = targetName != "全部错题" && e.GetPosition(target).Y < target.ActualHeight / 2;
@@ -319,7 +335,7 @@ public partial class MainWindow : Window
         }
         e.Handled = true;
     }
-    private ListBoxItem? CollectionAtPoint(Point point)
+    private TreeViewItem? CollectionAtPoint(Point point)
     {
         if (point.X < 0 || point.Y < 0 || point.X > CollectionList.ActualWidth || point.Y > CollectionList.ActualHeight) return null;
         return CollectionContainer(CollectionList.InputHitTest(point) as DependencyObject);
@@ -338,7 +354,7 @@ public partial class MainWindow : Window
     {
         if (!collectionDragInProgress) { collectionDragCandidate = null; return; }
         var source = collectionDragCandidate; var container = CollectionAtPoint(e.GetPosition(CollectionList));
-        var target = (container?.DataContext as CollectionEntry)?.Id;
+        var target = (container?.DataContext as CollectionTreeNode)?.Id;
         bool before = target != "全部错题" && container is not null && e.GetPosition(container).Y < container.ActualHeight / 2;
         EndCollectionDrag();
         if (source is not null && target is not null && source != target) ReorderCollections(source, target, before);
@@ -368,7 +384,7 @@ public partial class MainWindow : Window
     private void SubjectFilter_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (refreshingLibrary || SubjectFilter?.SelectedItem is not string value) return;
-        selectedSubject = value; selectedCollection = "全部错题";
+        selectedSubject = value; selectedCollection = "全部错题"; selectedLibraryNode = null;
         if (value != "全部学科") TargetSubject.SelectedItem = value;
         RefreshLibraryControls();
     }
@@ -379,7 +395,7 @@ public partial class MainWindow : Window
     private void GradeFilter_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (refreshingLibrary || GradeFilter?.SelectedItem is not string grade) return;
-        selectedGrade = grade; selectedCollection = "全部错题";
+        selectedGrade = grade; selectedCollection = "全部错题"; selectedLibraryNode = null;
         if (grade != "全部年级") TargetGrade.SelectedItem = grade;
         RefreshLibraryControls();
     }
@@ -402,7 +418,8 @@ public partial class MainWindow : Window
     private void NewCollection_Click(object sender, RoutedEventArgs e)
     {
         var initialSubject = ProcessPage.Visibility == Visibility.Visible ? LibraryCatalog.SubjectKey(TargetSubject.SelectedItem as string) : selectedSubject == "全部学科" ? library.Subjects.FirstOrDefault() ?? "" : LibraryCatalog.SubjectKey(selectedSubject);
-        var initialGrade = ProcessPage.Visibility == Visibility.Visible ? LibraryCatalog.GradeKey(TargetGrade.SelectedItem as string) : selectedGrade == "全部年级" ? "" : LibraryCatalog.GradeKey(selectedGrade);
+        if (ProcessPage.Visibility != Visibility.Visible && selectedLibraryNode?.Subject is string scopeSubject) initialSubject = scopeSubject;
+        var initialGrade = ProcessPage.Visibility == Visibility.Visible ? LibraryCatalog.GradeKey(TargetGrade.SelectedItem as string) : selectedLibraryNode?.Grade ?? (selectedGrade == "全部年级" ? "" : LibraryCatalog.GradeKey(selectedGrade));
         var dialog = new CollectionSettingsWindow(library, initialSubject, initialGrade: initialGrade) { Owner = this }; if (dialog.ShowDialog() != true) return;
         var proposed = library.Copy(); var id = LibraryCatalog.NewId(); proposed.Collections.Add(id);
         proposed.CollectionDefinitions[id] = new CollectionDefinition(dialog.CollectionName, dialog.Subject, dialog.Grade);
@@ -915,8 +932,10 @@ public partial class MainWindow : Window
     {
         if (value is not QuestionItem item) return false;
         if (selectedCollection != "全部错题" && item.Collection != selectedCollection) return false;
-        if (selectedSubject != "全部学科" && LibraryCatalog.Entry(library, item.Collection).Subject != LibraryCatalog.SubjectKey(selectedSubject)) return false;
-        if (selectedGrade != "全部年级" && LibraryCatalog.Entry(library, item.Collection).Grade != LibraryCatalog.GradeKey(selectedGrade)) return false;
+        var subjectScope = selectedLibraryNode?.Subject ?? (selectedSubject == "全部学科" ? null : LibraryCatalog.SubjectKey(selectedSubject));
+        var gradeScope = selectedLibraryNode?.Grade ?? (selectedGrade == "全部年级" ? null : LibraryCatalog.GradeKey(selectedGrade));
+        if (subjectScope is not null && LibraryCatalog.Entry(library, item.Collection).Subject != subjectScope) return false;
+        if (gradeScope is not null && LibraryCatalog.Entry(library, item.Collection).Grade != gradeScope) return false;
         var query = SearchText?.Text.Trim() ?? "";
         if (query.Length > 0 && !new[] { item.Label, item.Subject, item.Topic, item.Notes }.Any(text => text.Contains(query, StringComparison.CurrentCultureIgnoreCase))) return false;
         var filter = (ReviewFilter?.SelectedItem as ComboBoxItem)?.Content as string ?? "全部";
@@ -1018,7 +1037,7 @@ public partial class MainWindow : Window
         buttons.Children.Add(ok); buttons.Children.Add(cancel); DockPanel.SetDock(buttons, Dock.Bottom); root.Children.Add(buttons);
         var panel = new StackPanel(); panel.Children.Add(new TextBlock { Text = "移动到错题集", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12) }); panel.Children.Add(new TextBlock { Text = "选择目标错题集", Margin = new Thickness(0, 0, 0, 8) });
         var choices = LibraryCatalog.Entries(library).ToArray();
-        var choice = new ComboBox { ItemsSource = choices, DisplayMemberPath = nameof(CollectionEntry.Display), SelectedValuePath = nameof(CollectionEntry.Id), SelectedValue = selected.Collection, Padding = new Thickness(6) }; panel.Children.Add(choice); root.Children.Add(panel); dialog.Content = root;
+        var choice = new ComboBox { ItemsSource = choices, ItemTemplate = UiFactory.TextTemplate(nameof(CollectionEntry.Display)), SelectedValuePath = nameof(CollectionEntry.Id), SelectedValue = selected.Collection, Padding = new Thickness(6) }; panel.Children.Add(choice); root.Children.Add(panel); dialog.Content = root;
         ok.Click += (_, _) => { if (choice.SelectedItem is CollectionEntry) dialog.DialogResult = true; };
         if (dialog.ShowDialog() != true || choice.SelectedItem is not CollectionEntry target) return;
         var changed = selected with { Collection = target.Id, Subject = target.Subject };

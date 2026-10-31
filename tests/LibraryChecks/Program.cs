@@ -37,6 +37,16 @@ internal static class Program
         catalog.CollectionDefinitions["grade-four"] = new("同步第一单元", "语文", "四年级"); LibraryCatalog.Validate(catalog);
         Check(!LibraryCatalog.NameAvailable(catalog, "同步第一单元", "语文", grade: "三年级") && LibraryCatalog.NameAvailable(catalog, "同步第一单元", "语文", grade: "五年级"), "same unit names are isolated by grade and subject");
         Check(LibraryCatalog.Entry(catalog, "grade-three").Display == "三年级 / 语文 / 同步第一单元", "collection display includes full grade hierarchy");
+        catalog.Collections.Add("grade-three-second");
+        catalog.CollectionDefinitions["grade-three-second"] = new("同步第二单元", "语文", "三年级");
+        var tree = LibraryTree.Build(catalog, "三年级", "语文", "三年级 · 语文 · 全部错题");
+        Check(tree.Id is null && tree.Children.Count == 1 && tree.Children[0].Name == "三年级", "aggregate is the parent of the grade");
+        var subjectNode = tree.Children[0].Children.Single();
+        Check(subjectNode.Subject == "语文" && subjectNode.Children.Select(n => n.Id).SequenceEqual(new[] { "grade-three", "grade-three-second" }), "units are ordered children of their subject, never aggregate siblings");
+        Check(tree.Descendants().Select(n => n.Key).Distinct().Count() == tree.Descendants().Count(), "all tree nodes have distinct selection keys");
+        var allTree = LibraryTree.Build(catalog, null, null, "全部错题");
+        Check(allTree.Descendants().Count(n => n.Id == "grade-three") == 1 && allTree.Children.Any(n => n.Grade == "四年级"), "all-grades tree keeps collections under distinct grades");
+        Check(!LibraryCatalog.Entry(catalog, "grade-three").ToString().Contains("CollectionEntry"), "fallback display never leaks a technical type name");
         var legacyV2 = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(migrated.Config))!;
         legacyV2["Version"] = 2; legacyV2.AsObject().Remove("Grades");
         foreach (var entry in legacyV2["CollectionDefinitions"]!.AsObject()) entry.Value!.AsObject().Remove("Grade");

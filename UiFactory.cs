@@ -5,6 +5,12 @@ using System.Windows.Media;
 namespace PaperEraser;
 internal static class UiFactory
 {
+    internal static DataTemplate TextTemplate(string path)
+    {
+        var text = new FrameworkElementFactory(typeof(TextBlock));
+        text.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(path));
+        return new DataTemplate { VisualTree = text };
+    }
     internal static void Configure(Window window)
     {
         window.Background = Brush("#FAFBFD"); window.Foreground = Brush("#172746");
